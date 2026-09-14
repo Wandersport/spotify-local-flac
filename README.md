@@ -69,7 +69,7 @@ Measured directly on CachyOS x86_64:
 | Metric | Result | Notes |
 | :--- | :--- | :--- |
 | **Startup & DB Connection** | **63.95 ms** | Instant daemon readiness |
-| **Incremental Scan Speed** | **9,108 tracks / sec** | 1,879 tracks verified in 0.21s |
+| **Incremental Scan Speed** | **9,108 tracks / sec** | 1,880 tracks verified in 0.21s |
 | **Idle Memory (RSS)** | **38.1 MB** | Minimal footprint in background |
 | **Idle CPU Usage** | **0.00%** | Zero polling when quiet |
 | **Active 24-bit FLAC Stream CPU** | **0.97%** | Near-zero CPU overhead |
@@ -80,7 +80,8 @@ Measured directly on CachyOS x86_64:
 ## Features
 
 ### 1. Library Browsing & Search
-- **Songs View**: Sortable track list with title, artist, album, format badge (e.g. `FLAC 24-bit · 48 kHz`), and track duration.
+- **Songs View**: Sortable track list with title, artist, album, format badge (e.g. `FLAC 24-bit · 48 kHz`), SVG play/pause action buttons on hover/play, and track duration.
+- **Filter Chips**: Spotify-native styled pills for quick filtering between FLAC Only (129), All Local (1,880), Albums (170), Artists (9), Folders, and Recently Played.
 - **Albums View**: Grid of album cards with extracted embedded artwork, album artist, release year, and track counts.
 - **Artists View**: Grid of artists with track and album counters; drill down into specific artists.
 - **Folders Explorer**: Hierarchical breadcrumb folder browser for browsing local directory structure directly on disk.
@@ -89,8 +90,9 @@ Measured directly on CachyOS x86_64:
 
 ### 2. Playback & Integration
 - **Integrated Player Bar**: Sleek bottom bar matching Spotify's dark UI with track title, artist, album art, audiophile badge, interactive seek bar, volume scrubber, and playback controls.
+- **Bidirectional Ownership State Machine**: Strict single-active-owner coordination (`LOCAL_FLAC` vs `SPOTIFY_NATIVE`). When native Spotify plays, FLAC pauses immediately and native bar restores; when FLAC plays, native Spotify pauses and local bar takes over with zero simultaneous playback.
+- **Native Settings Integration**: Seamless toggle in Spotify Settings (`/preferences` under "Your Library") to show or hide "Show Local FLAC" and direct shortcut to "Manage Local FLAC folders", with state persisted across sessions in `localStorage`.
 - **Queue Management**: Current playlist queue with Next, Previous, Shuffle, and Repeat (off / all / one).
-- **Audio Coordination**: Automatically pauses Spotify's native stream when local FLAC starts, and pauses local audio if Spotify playback is initiated.
 - **System Media Keys & MPRIS**: Keyboard media keys and KDE Plasma system tray notifications work natively via `navigator.mediaSession`.
 - **Keyboard Shortcuts**:
   - `Space`: Play / Pause (when not focused on a text input)

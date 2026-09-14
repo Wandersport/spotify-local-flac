@@ -177,9 +177,16 @@ const { useState, useEffect, useCallback, useMemo } = React;
 
     const stats = (status && status.stats) || {};
     const flacCount = stats.flac_count || 129;
-    const totalCount = stats.total_tracks || 1879;
+    const totalCount = stats.total_tracks || 1880;
     const albumCount = stats.total_albums || 170;
     const artistCount = stats.total_artists || 9;
+
+    const playIconSvg = React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "currentColor" },
+      React.createElement("path", { d: "M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288V1.713z" })
+    );
+    const pauseIconSvg = React.createElement("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "currentColor" },
+      React.createElement("path", { d: "M2.7 1a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7H2.7zm8 0a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7h-2.6z" })
+    );
 
     // Render Track Table
     const renderTrackTable = (trackList, emptyMsg = "No tracks found.") => {
@@ -189,50 +196,58 @@ const { useState, useEffect, useCallback, useMemo } = React;
         );
       }
 
-      return React.createElement("table", { className: "lf-table" },
+      return React.createElement("table", { className: "lf-track-table lf-table" },
         React.createElement("thead", null,
           React.createElement("tr", null,
-            React.createElement("th", { style: { width: "40px" } }, "#"),
-            React.createElement("th", null, "Title"),
-            React.createElement("th", null, "Album"),
-            React.createElement("th", null, "Quality / Codec"),
-            React.createElement("th", { style: { textAlign: "right", paddingRight: "24px" } }, "Duration")
+            React.createElement("th", { style: { width: "44px" } }, "#"),
+            React.createElement("th", null, "TITLE"),
+            React.createElement("th", null, "ALBUM"),
+            React.createElement("th", null, "FORMAT"),
+            React.createElement("th", { style: { width: "70px", textAlign: "right" } }, "⏱")
           )
         ),
         React.createElement("tbody", null,
           trackList.map((t, idx) => {
             const isCurrent = playerState.currentTrack && playerState.currentTrack.id === t.id;
-            const isHighRes = (t.bit_depth && t.bit_depth > 16) || (t.sample_rate && t.sample_rate > 48000) || (t.codec === "FLAC");
+            const isPlayingThis = isCurrent && playerState.isPlaying;
 
             return React.createElement("tr", {
               key: t.id,
-              className: isCurrent ? "playing" : "",
+              className: `lf-track-row ${isCurrent ? "playing" : ""}`,
               onDoubleClick: () => handlePlayTrack(t, trackList, idx)
             },
-              React.createElement("td", { className: "lf-td-index" },
-                isCurrent && playerState.isPlaying
-                  ? "▶"
-                  : (t.track_number || idx + 1)
+              React.createElement("td", { className: "lf-col-num lf-td-index" },
+                React.createElement("span", { className: "lf-track-idx" }, t.track_number || idx + 1),
+                React.createElement("button", {
+                  className: "lf-row-play-btn",
+                  title: isPlayingThis ? "Pause" : "Play",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    isPlayingThis ? window.LocalFlacPlayer?.pause() : handlePlayTrack(t, trackList, idx);
+                  }
+                }, isPlayingThis ? pauseIconSvg : playIconSvg)
               ),
-              React.createElement("td", null,
-                React.createElement("div", { className: "lf-td-title" },
-                  t.has_artwork
-                    ? React.createElement("img", { className: "lf-track-art-sm", src: getArtworkUrl(t.id), alt: "" })
-                    : React.createElement("div", { className: "lf-track-art-sm", style: { display: "flex", alignItems: "center", justifyContent: "center", color: "#888" } }, "♪"),
-                  React.createElement("div", { className: "lf-track-text" },
-                    React.createElement("span", {
-                      className: "lf-track-title",
+              React.createElement("td", { className: "lf-col-title" },
+                React.createElement("div", { className: "lf-track-title-cell lf-td-title" },
+                  React.createElement("div", { className: "lf-row-art" },
+                    t.has_artwork
+                      ? React.createElement("img", { className: "lf-track-art-sm", src: getArtworkUrl(t.id), alt: "" })
+                      : React.createElement("div", { className: "lf-row-art-fallback lf-track-art-sm" }, "♪")
+                  ),
+                  React.createElement("div", { className: "lf-track-meta lf-track-text" },
+                    React.createElement("div", {
+                      className: `lf-track-name lf-track-title ${isCurrent ? "highlight" : ""}`,
                       onClick: () => handlePlayTrack(t, trackList, idx)
                     }, t.title || t.filename),
-                    React.createElement("span", { className: "lf-track-artist" }, t.artist || "Unknown Artist")
+                    React.createElement("div", { className: "lf-track-artist" }, t.artist || "Unknown Artist")
                   )
                 )
               ),
-              React.createElement("td", { style: { color: "#b3b3b3" } }, t.album || "-"),
-              React.createElement("td", null,
-                React.createElement("span", { className: isHighRes ? "lf-badge-flac" : "lf-badge-cd" }, formatBadge(t))
+              React.createElement("td", { className: "lf-col-album" }, t.album || "-"),
+              React.createElement("td", { className: "lf-col-format" },
+                React.createElement("span", { className: "lf-codec-pill lf-badge-flac" }, formatBadge(t))
               ),
-              React.createElement("td", { style: { textAlign: "right", paddingRight: "24px", color: "#b3b3b3" } },
+              React.createElement("td", { className: "lf-col-duration" },
                 formatTime(t.duration)
               )
             );
@@ -439,7 +454,7 @@ const { useState, useEffect, useCallback, useMemo } = React;
         ].map(tItem =>
           React.createElement("button", {
             key: tItem.id,
-            className: `lf-tab ${tab === tItem.id ? "active" : ""}`,
+            className: `lf-tab-btn lf-tab ${tab === tItem.id ? "active" : ""}`,
             onClick: () => {
               setSelectedAlbum(null);
               setSelectedArtist(null);

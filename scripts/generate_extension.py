@@ -353,6 +353,10 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     window.LocalFlacConfig.token = savedToken;
   }}
 
+  function isLocalFlacEnabled() {{
+    return localStorage.getItem("local_flac_enabled") !== "false";
+  }}
+
   function getBaseUrl() {{
     return `http://${{window.LocalFlacConfig.host}}:${{window.LocalFlacConfig.port}}`;
   }}
@@ -398,7 +402,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
   }}
 
   // ==========================================================
-  // 3. FLAC PLAYER SINGLETON
+  // 3. FLAC PLAYER SINGLETON & PLAYBACK OWNERSHIP STATE MACHINE
   // ==========================================================
   class FlacPlayer {{
     constructor() {{
@@ -416,6 +420,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       this.repeat = localStorage.getItem("local_flac_repeat") || "off"; // 'off' | 'all' | 'one'
       this.listeners = new Set();
       this.flacCount = 0;
+      this.playbackOwner = "NONE"; // 'LOCAL_FLAC' | 'SPOTIFY_NATIVE' | 'NONE'
       this.audio.volume = this.isMuted ? 0 : this.volume;
 
       this._setupAudioListeners();
@@ -448,13 +453,15 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         shuffle: this.shuffle,
         repeat: this.repeat,
         queueLength: this.queue.length,
-        queueIndex: this.queueIndex
+        queueIndex: this.queueIndex,
+        playbackOwner: this.playbackOwner
       }};
     }}
 
     _setupAudioListeners() {{
       this.audio.addEventListener("play", () => {{
         this.isPlaying = true;
+        this.playbackOwner = "LOCAL_FLAC";
         document.body.classList.add("local-flac-playing");
         const bar = document.getElementById("local-flac-bottom-bar");
         if (bar) bar.classList.remove("hidden");
@@ -488,31 +495,70 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       }});
     }}
 
+    transferToSpotifyNative() {{
+      if (this.playbackOwner !== "LOCAL_FLAC") return;
+      console.log("[LocalFLAC] owner LOCAL_FLAC -> SPOTIFY_NATIVE");
+      this.playbackOwner = "SPOTIFY_NATIVE";
+      this.audio.pause();
+      this.isPlaying = false;
+      document.body.classList.remove("local-flac-playing");
+      const bar = document.getElementById("local-flac-bottom-bar");
+      if (bar) bar.classList.add("hidden");
+      this._notify();
+    }}
+
     _setupSpotifySync() {{
       const pauseNative = () => {{
         try {{
           if (window.Spicetify && window.Spicetify.Player && window.Spicetify.Player.isPlaying()) {{
             window.Spicetify.Player.pause();
           }}
+          if (window.Spicetify?.Platform?.PlayerAPI?.pause) {{
+            window.Spicetify.Platform.PlayerAPI.pause();
+          }}
         }} catch(e) {{}}
       }};
 
       this.audio.addEventListener("play", pauseNative);
+      this.audio.addEventListener("playing", pauseNative);
 
       const checkSpotify = () => {{
-        if (window.Spicetify && window.Spicetify.Player) {{
-          window.Spicetify.Player.addEventListener("onplaypause", () => {{
-            if (window.Spicetify.Player.isPlaying() && this.isPlaying) {{
-              this.pause();
-              const bar = document.getElementById("local-flac-bottom-bar");
-              if (bar) bar.classList.add("hidden");
-              document.body.classList.remove("local-flac-playing");
-            }}
-          }});
-        }} else {{
-          setTimeout(checkSpotify, 1000);
+        if (!window.Spicetify?.Player) {{
+          setTimeout(checkSpotify, 500);
+          return;
         }}
+
+        // 1. Listen to Spicetify.Player onplaypause
+        window.Spicetify.Player.addEventListener("onplaypause", () => {{
+          try {{
+            if (window.Spicetify.Player.isPlaying()) {{
+              this.transferToSpotifyNative();
+            }}
+          }} catch(e) {{}}
+        }});
+
+        // 2. Listen to Spicetify.Player songchange
+        window.Spicetify.Player.addEventListener("songchange", () => {{
+          try {{
+            const curUri = window.Spicetify.Player.data?.item?.uri || "";
+            if (curUri && !curUri.startsWith("spotify:local:flac")) {{
+              this.transferToSpotifyNative();
+            }}
+          }} catch(e) {{}}
+        }});
+
+        // 3. Listen directly to PlayerAPI core events
+        try {{
+          if (window.Spicetify.Platform?.PlayerAPI?._events?.addListener) {{
+            window.Spicetify.Platform.PlayerAPI._events.addListener("update", (ev) => {{
+              if (ev?.data?.item && !ev.data.isPaused) {{
+                this.transferToSpotifyNative();
+              }}
+            }});
+          }}
+        }} catch(e) {{}}
       }};
+
       checkSpotify();
     }}
 
@@ -526,8 +572,13 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         this.queueIndex = 0;
         this.playTrack(this.queue[0]);
       }} else {{
+        console.log("[LocalFLAC] owner LOCAL_FLAC -> NONE (queue ended)");
         this.isPlaying = false;
+        this.playbackOwner = "NONE";
         this.currentTime = 0;
+        document.body.classList.remove("local-flac-playing");
+        const bar = document.getElementById("local-flac-bottom-bar");
+        if (bar) bar.classList.add("hidden");
         this._notify();
       }}
     }}
@@ -570,6 +621,26 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       this.duration = track.duration || 0;
       this.currentTime = 0;
 
+      // Ensure Spotify native is paused and transition ownership to LOCAL_FLAC
+      try {{
+        if (window.Spicetify && window.Spicetify.Player && window.Spicetify.Player.isPlaying()) {{
+          window.Spicetify.Player.pause();
+        }}
+        if (window.Spicetify?.Platform?.PlayerAPI?.pause) {{
+          window.Spicetify.Platform.PlayerAPI.pause();
+        }}
+      }} catch(e) {{}}
+
+      const prevOwner = this.playbackOwner;
+      this.playbackOwner = "LOCAL_FLAC";
+      if (prevOwner !== "LOCAL_FLAC") {{
+        console.log(`[LocalFLAC] owner ${{prevOwner}} -> LOCAL_FLAC`);
+      }}
+
+      document.body.classList.add("local-flac-playing");
+      const bar = document.getElementById("local-flac-bottom-bar");
+      if (bar) bar.classList.remove("hidden");
+
       const url = getStreamUrl(track.id);
       this.audio.src = url;
       this.audio.currentTime = 0;
@@ -594,6 +665,25 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
 
     resume() {{
       if (this.currentTrack && this.audio.src) {{
+        try {{
+          if (window.Spicetify && window.Spicetify.Player && window.Spicetify.Player.isPlaying()) {{
+            window.Spicetify.Player.pause();
+          }}
+          if (window.Spicetify?.Platform?.PlayerAPI?.pause) {{
+            window.Spicetify.Platform.PlayerAPI.pause();
+          }}
+        }} catch(e) {{}}
+
+        const prevOwner = this.playbackOwner;
+        this.playbackOwner = "LOCAL_FLAC";
+        if (prevOwner !== "LOCAL_FLAC") {{
+          console.log(`[LocalFLAC] owner ${{prevOwner}} -> LOCAL_FLAC`);
+        }}
+
+        document.body.classList.add("local-flac-playing");
+        const bar = document.getElementById("local-flac-bottom-bar");
+        if (bar) bar.classList.remove("hidden");
+
         this.audio.play();
       }} else if (this.queue.length > 0) {{
         this.playTrack(this.queue[0]);
@@ -795,35 +885,36 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       if (!bar) return;
 
       const track = this.currentTrack;
-      if (!track) {{
+      // Strictly hide when ownership is not LOCAL_FLAC or no track loaded
+      if (this.playbackOwner !== "LOCAL_FLAC" || !track) {{
         bar.classList.add("hidden");
         document.body.classList.remove("local-flac-playing");
         return;
       }}
 
-      // Title & Artist
-      const titleEl = bar.querySelector(".lfb-title");
-      const artistEl = bar.querySelector(".lfb-artist");
-      titleEl.textContent = track.title || track.filename;
-      artistEl.textContent = track.artist ? `${{track.artist}}${{track.album ? " • " + track.album : ""}}` : (track.album || "Local File");
+      bar.classList.remove("hidden");
+      document.body.classList.add("local-flac-playing");
 
-      // Badge
-      const badge = bar.querySelector(".lfb-badge");
-      badge.textContent = formatBadge(track);
-
-      // Artwork
-      const img = bar.querySelector(".lfb-art");
-      const fallback = bar.querySelector(".lfb-art-fallback");
+      // Update Art
+      const artImg = bar.querySelector(".lfb-art");
+      const artFallback = bar.querySelector(".lfb-art-fallback");
       if (track.has_artwork) {{
-        img.src = getArtworkUrl(track.id);
-        img.style.display = "block";
-        fallback.style.display = "none";
+        artImg.src = getArtworkUrl(track.id);
+        artImg.style.display = "block";
+        artFallback.style.display = "none";
       }} else {{
-        img.style.display = "none";
-        fallback.style.display = "flex";
+        artImg.style.display = "none";
+        artFallback.style.display = "flex";
       }}
 
-      // Play/Pause icon
+      // Update Title & Artist
+      bar.querySelector(".lfb-title").textContent = track.title || track.filename;
+      bar.querySelector(".lfb-artist").textContent = track.artist || "Unknown Artist";
+
+      // Update Quality Badge
+      bar.querySelector(".lfb-badge").textContent = formatBadge(track);
+
+      // Update Play/Pause Icon
       const playIcon = bar.querySelector(".lfb-icon-play");
       const pauseIcon = bar.querySelector(".lfb-icon-pause");
       if (this.isPlaying) {{
@@ -834,7 +925,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         pauseIcon.style.display = "none";
       }}
 
-      // Shuffle & Repeat active states
+      // Update Shuffle / Repeat States
       const shuffleBtn = bar.querySelector(".lfb-shuffle-btn");
       if (this.shuffle) shuffleBtn.classList.add("active");
       else shuffleBtn.classList.remove("active");
@@ -843,12 +934,16 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       if (this.repeat !== "off") repeatBtn.classList.add("active");
       else repeatBtn.classList.remove("active");
 
+      // Update Volume Fill
+      const volFill = bar.querySelector(".lfb-vol-fill");
+      volFill.style.width = `${{(this.isMuted ? 0 : this.volume) * 100}}%`;
+
       this._updateProgressOnly();
     }}
 
     _updateProgressOnly() {{
       const bar = document.getElementById("local-flac-bottom-bar");
-      if (!bar) return;
+      if (!bar || this.playbackOwner !== "LOCAL_FLAC") return;
 
       const curTime = bar.querySelector(".lfb-cur-time");
       const totTime = bar.querySelector(".lfb-tot-time");
@@ -857,38 +952,38 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       curTime.textContent = formatTime(this.currentTime);
       totTime.textContent = formatTime(this.duration);
 
-      const progressRatio = this.duration > 0 ? (this.currentTime / this.duration) : 0;
-      seekFill.style.width = `${{Math.min(100, Math.max(0, progressRatio * 100))}}%`;
-
-      const volFill = bar.querySelector(".lfb-vol-fill");
-      volFill.style.width = `${{this.isMuted ? 0 : (this.volume * 100)}}%`;
+      const ratio = this.duration > 0 ? (this.currentTime / this.duration) : 0;
+      seekFill.style.width = `${{ratio * 100}}%`;
     }}
 
     _updateSidebarCount() {{
-      const update = () => {{
-        fetch(`${{getBaseUrl()}}/api/status`, {{ headers: getApiHeaders() }})
-          .then(r => r.json())
-          .then(data => {{
-            const flacCount = data.stats?.flac_count || 0;
-            this.flacCount = flacCount;
-            injectSidebarRow(flacCount);
-          }})
-          .catch(() => {{}});
-      }};
-      update();
-      setInterval(update, 10000);
+      fetch(`${{getBaseUrl()}}/api/status`, {{ headers: getApiHeaders() }})
+        .then(r => r.json())
+        .then(data => {{
+          this.flacCount = data.stats?.flac_count || 129;
+          injectSidebarRow(this.flacCount);
+        }})
+        .catch(() => {{}});
     }}
   }}
 
   // ==========================================================
-  // 4. REACT APPLICATION VIEW (Inside Spotify Main Content)
+  // 4. REACT APPLICATION VIEW (Dedicated Route /local-flac)
   // ==========================================================
   function createLocalFlacComponent() {{
-    const React = Spicetify.React;
-    const {{ useState, useEffect, useCallback, useMemo }} = React;
+    const React = window.Spicetify?.React;
+    if (!React) return null;
+    const {{ useState, useEffect, useCallback }} = React;
+
+    const playIconSvg = React.createElement("svg", {{ width: 14, height: 14, viewBox: "0 0 16 16", fill: "currentColor" }},
+      React.createElement("path", {{ d: "M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288V1.713z" }})
+    );
+    const pauseIconSvg = React.createElement("svg", {{ width: 14, height: 14, viewBox: "0 0 16 16", fill: "currentColor" }},
+      React.createElement("path", {{ d: "M2.7 1a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7H2.7zm8 0a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7h-2.6z" }})
+    );
 
     function LocalFlacApp() {{
-      const [tab, setTab] = useState("flac"); // flac | all | albums | artists | folders | recent
+      const [tab, setTab] = useState("flac");
       const [tracks, setTracks] = useState([]);
       const [albums, setAlbums] = useState([]);
       const [artists, setArtists] = useState([]);
@@ -960,19 +1055,20 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       }}, []);
 
       const fetchRecent = useCallback(() => {{
-        fetch(`${{getBaseUrl()}}/api/history?limit=50`, {{ headers: getApiHeaders() }})
+        fetch(`${{getBaseUrl()}}/api/history`, {{ headers: getApiHeaders() }})
           .then(r => r.json())
           .then(data => setRecentTracks(data.history || []))
           .catch(err => console.error("[LocalFLAC] Recent fetch error:", err));
       }}, []);
 
       const fetchFolder = useCallback((path = null) => {{
-        const params = new URLSearchParams();
-        if (path) params.append("path", path);
-        fetch(`${{getBaseUrl()}}/api/folders?${{params.toString()}}`, {{ headers: getApiHeaders() }})
+        const url = path
+          ? `${{getBaseUrl()}}/api/folders?path=${{encodeURIComponent(path)}}`
+          : `${{getBaseUrl()}}/api/folders`;
+        fetch(url, {{ headers: getApiHeaders() }})
           .then(r => r.json())
           .then(data => setFolderData(data))
-          .catch(err => console.error("[LocalFLAC] Folders fetch error:", err));
+          .catch(err => console.error("[LocalFLAC] Folder fetch error:", err));
       }}, []);
 
       useEffect(() => {{
@@ -1017,7 +1113,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
             ),
             React.createElement("div", {{ className: "lf-stats-row" }},
               React.createElement("span", {{ className: "lf-stat-pill lf-stat-pill-flac" }}, `${{stats.flac_count || 129}} FLACs`),
-              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_tracks || 1879}} Total Tracks`),
+              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_tracks || 1880}} Total Tracks`),
               React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_albums || 170}} Albums`),
               React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_artists || 9}} Artists`)
             )
@@ -1050,7 +1146,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
           )
         ),
 
-        // Tabs
+        // Filter Chips / Tabs
         React.createElement("div", {{ className: "lf-tabs" }},
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "flac" ? "active" : ""}}`,
@@ -1059,7 +1155,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "all" ? "active" : ""}}`,
             onClick: () => {{ setTab("all"); setSelectedAlbum(null); setSelectedArtist(null); }}
-          }}, `All Local (${{stats.total_tracks || 1879}})`),
+          }}, `All Local (${{stats.total_tracks || 1880}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "albums" ? "active" : ""}}`,
             onClick: () => setTab("albums")
@@ -1078,22 +1174,22 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
           }}, "Recently Played")
         ),
 
-        // Tab Content
+        // Tab Content: Track Table
         (tab === "flac" || tab === "all") && React.createElement("div", null,
           React.createElement("table", {{ className: "lf-track-table" }},
             React.createElement("thead", null,
               React.createElement("tr", null,
-                React.createElement("th", {{ style: {{ width: "40px" }} }}, "#"),
+                React.createElement("th", {{ style: {{ width: "44px" }} }}, "#"),
                 React.createElement("th", null, "TITLE"),
                 React.createElement("th", null, "ALBUM"),
                 React.createElement("th", null, "FORMAT"),
-                React.createElement("th", {{ style: {{ width: "60px", textAlign: "right" }} }}, "⏱")
+                React.createElement("th", {{ style: {{ width: "70px", textAlign: "right" }} }}, "⏱")
               )
             ),
             React.createElement("tbody", null,
               tracks.map((t, idx) => {{
                 const isCurrent = t.id === currentTrackId;
-                const isPlayingThis = isCurrent && playerState.isPlaying;
+                const isPlayingThis = isCurrent && playerState.isPlaying && playerState.playbackOwner === "LOCAL_FLAC";
                 return React.createElement("tr", {{
                   key: t.id,
                   className: `lf-track-row ${{isCurrent ? "playing" : ""}}`,
@@ -1103,8 +1199,12 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
                     React.createElement("span", {{ className: "lf-track-idx" }}, idx + 1),
                     React.createElement("button", {{
                       className: "lf-row-play-btn",
-                      onClick: () => isPlayingThis ? window.LocalFlacPlayer.pause() : handlePlayTrack(t, tracks)
-                    }}, isPlayingThis ? "⏸" : "▶")
+                      title: isPlayingThis ? "Pause" : "Play",
+                      onClick: (e) => {{
+                        e.stopPropagation();
+                        isPlayingThis ? window.LocalFlacPlayer.pause() : handlePlayTrack(t, tracks);
+                      }}
+                    }}, isPlayingThis ? pauseIconSvg : playIconSvg)
                   ),
                   React.createElement("td", {{ className: "lf-col-title" }},
                     React.createElement("div", {{ className: "lf-track-title-cell" }},
@@ -1164,17 +1264,28 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
 
         // Recently Played
         tab === "recent" && React.createElement("table", {{ className: "lf-track-table" }},
+          React.createElement("thead", null,
+            React.createElement("tr", null,
+              React.createElement("th", {{ style: {{ width: "44px" }} }}, "#"),
+              React.createElement("th", null, "TITLE"),
+              React.createElement("th", null, "ARTIST"),
+              React.createElement("th", null, "FORMAT"),
+              React.createElement("th", {{ style: {{ width: "70px", textAlign: "right" }} }}, "⏱")
+            )
+          ),
           React.createElement("tbody", null,
             recentTracks.map((h, idx) => React.createElement("tr", {{
               key: idx,
               className: "lf-track-row",
               onDoubleClick: () => handlePlayTrack(h, recentTracks)
             }},
-              React.createElement("td", {{ style: {{ width: "40px" }} }}, idx + 1),
-              React.createElement("td", null, h.title || h.filename),
-              React.createElement("td", null, h.artist || "Unknown"),
-              React.createElement("td", null, formatBadge(h)),
-              React.createElement("td", {{ style: {{ textAlign: "right" }} }}, formatTime(h.duration))
+              React.createElement("td", {{ className: "lf-col-num" }}, idx + 1),
+              React.createElement("td", {{ className: "lf-col-title" }}, h.title || h.filename),
+              React.createElement("td", {{ className: "lf-col-album" }}, h.artist || "Unknown"),
+              React.createElement("td", {{ className: "lf-col-format" }},
+                React.createElement("span", {{ className: "lf-codec-pill" }}, formatBadge(h))
+              ),
+              React.createElement("td", {{ className: "lf-col-duration" }}, formatTime(h.duration))
             ))
           )
         ),
@@ -1194,6 +1305,23 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
             React.createElement("span", {{ className: "lf-folder-name" }}, item.name),
             !item.is_dir && React.createElement("span", {{ className: "lf-folder-meta" }}, `${{item.codec || ""}} · ${{formatTime(item.duration)}}`)
           ))
+        ),
+
+        // Settings / Folders Modal
+        showSettings && React.createElement("div", {{ className: "lf-modal-overlay", onClick: () => setShowSettings(false) }},
+          React.createElement("div", {{ className: "lf-modal", onClick: (e) => e.stopPropagation() }},
+            React.createElement("div", {{ className: "lf-modal-header" }},
+              React.createElement("h2", null, "Music Directories"),
+              React.createElement("button", {{ className: "lf-modal-close", onClick: () => setShowSettings(false) }}, "✕")
+            ),
+            React.createElement("div", {{ className: "lf-modal-body" }},
+              React.createElement("div", {{ className: "lf-dirs-list" }},
+                status?.music_directories?.map((dir, i) => React.createElement("div", {{ key: i, className: "lf-dir-item" }},
+                  React.createElement("span", null, dir)
+                ))
+              )
+            )
+          )
         )
       );
     }}
@@ -1234,6 +1362,12 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
   function handleRoute(loc) {{
     const path = loc?.pathname || window.location.pathname;
     const isFlac = path === "/local-flac" || path.startsWith("/local-flac/");
+
+    if (isFlac && !isLocalFlacEnabled()) {{
+      window.Spicetify?.Platform?.History?.push("/");
+      return;
+    }}
+
     ensureAppMounted();
 
     if (isFlac) {{
@@ -1249,6 +1383,10 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     if (row) {{
       if (isFlac) row.classList.add("active");
       else row.classList.remove("active");
+    }}
+
+    if (path === "/preferences" || path.startsWith("/preferences")) {{
+      setTimeout(injectSettingsToggle, 200);
     }}
   }}
 
@@ -1276,6 +1414,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     const row = target.closest('[role="row"]');
     if (!row || !row.parentElement) return;
 
+    const enabled = isLocalFlacEnabled();
     let flacRow = document.getElementById("sidebar-local-flac-row");
     if (!flacRow) {{
       flacRow = row.cloneNode(true);
@@ -1291,6 +1430,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       flacRow.onclick = (e) => {{
         e.preventDefault();
         e.stopPropagation();
+        if (!isLocalFlacEnabled()) return;
         if (window.Spicetify?.Platform?.History) {{
           window.Spicetify.Platform.History.push("/local-flac");
         }}
@@ -1300,6 +1440,8 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     }} else if (flacRow.parentElement !== row.parentElement) {{
       row.parentElement.insertBefore(flacRow, row.nextSibling);
     }}
+
+    flacRow.style.display = enabled ? "" : "none";
 
     // Update Subtitle Count
     const subtitleSpan = flacRow.querySelector(".t2qx66PtSUA0l8Eh") ||
@@ -1317,6 +1459,96 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     }}
   }}
 
+  // ==========================================================
+  // 7. SETTINGS TOGGLE INJECTION ("Show Local FLAC" in Preferences)
+  // ==========================================================
+  function injectSettingsToggle() {{
+    const currentPath = window.Spicetify?.Platform?.History?.location?.pathname || window.location.pathname;
+    if (currentPath !== "/preferences" && !currentPath.startsWith("/preferences")) return;
+
+    if (document.getElementById("settings-local-flac-row")) return;
+
+    const localFilesInput = document.getElementById("settings.showLocalFiles");
+    let targetRow = localFilesInput ? localFilesInput.closest(".x-settings-row") : null;
+
+    if (!targetRow) {{
+      const labels = Array.from(document.querySelectorAll(".x-settings-row label, .x-settings-firstColumn label"));
+      const found = labels.find(l => l.innerText.toLowerCase().includes("local files") || l.innerText.toLowerCase().includes("archivos locales"));
+      if (found) targetRow = found.closest(".x-settings-row");
+    }}
+
+    if (!targetRow || !targetRow.parentElement) return;
+
+    const isEnabled = isLocalFlacEnabled();
+
+    // 1. Show Local FLAC Toggle Row
+    const flacRow = document.createElement("div");
+    flacRow.className = "x-settings-row";
+    flacRow.id = "settings-local-flac-row";
+    flacRow.innerHTML = `
+      <div class="x-settings-firstColumn">
+        <label class="e-10451-text encore-text-body-small encore-internal-color-text-subdued" data-encore-id="text" for="settings.showLocalFlac">Show Local FLAC</label>
+      </div>
+      <div class="x-settings-secondColumn">
+        <label class="x-toggle-wrapper">
+          <input id="settings.showLocalFlac" class="x-toggle-input" type="checkbox" ${{isEnabled ? "checked" : ""}}>
+          <span class="x-toggle-indicatorWrapper"><span class="x-toggle-indicator"></span></span>
+        </label>
+      </div>
+    `;
+
+    // 2. Manage Folders Button Row
+    const folderRow = document.createElement("div");
+    folderRow.className = "x-settings-row";
+    folderRow.id = "settings-local-flac-manage-folders-row";
+    if (!isEnabled) folderRow.style.display = "none";
+    folderRow.innerHTML = `
+      <div class="x-settings-firstColumn">
+        <label class="e-10451-text encore-text-body-small encore-internal-color-text-subdued" data-encore-id="text">Local FLAC Folders</label>
+      </div>
+      <div class="x-settings-secondColumn">
+        <button class="encore-text-body-small-bold e-10451-legacy-button--small e-10451-legacy-button-secondary--text-base encore-internal-color-text-base e-10451-legacy-button e-10451-legacy-button-secondary e-10451-overflow-wrap-anywhere" id="btn-manage-flac-folders" data-encore-id="buttonSecondary">Manage Local FLAC folders</button>
+      </div>
+    `;
+
+    targetRow.parentElement.insertBefore(flacRow, targetRow.nextSibling);
+    flacRow.parentElement.insertBefore(folderRow, flacRow.nextSibling);
+
+    const toggleInput = flacRow.querySelector("#settings\\\\.showLocalFlac") || flacRow.querySelector("input[type='checkbox']");
+    if (toggleInput) {{
+      toggleInput.onchange = (e) => {{
+        const checked = e.target.checked;
+        localStorage.setItem("local_flac_enabled", checked ? "true" : "false");
+        folderRow.style.display = checked ? "" : "none";
+
+        const sidebarRow = document.getElementById("sidebar-local-flac-row");
+        if (sidebarRow) {{
+          sidebarRow.style.display = checked ? "" : "none";
+        }}
+
+        if (!checked && window.Spicetify?.Platform?.History?.location?.pathname === "/local-flac") {{
+          window.Spicetify.Platform.History.push("/");
+        }}
+
+        console.log("[LocalFLAC] Setting Show Local FLAC toggled:", checked);
+      }};
+    }}
+
+    const folderBtn = folderRow.querySelector("#btn-manage-flac-folders");
+    if (folderBtn) {{
+      folderBtn.onclick = () => {{
+        if (window.Spicetify?.Platform?.History) {{
+          window.Spicetify.Platform.History.push("/local-flac");
+          setTimeout(() => {{
+            const btns = Array.from(document.querySelectorAll(".lf-header-actions button, button"));
+            const folderModalBtn = btns.find(b => b.innerText.includes("Folders"));
+            if (folderModalBtn) folderModalBtn.click();
+          }}, 400);
+        }}
+      }};
+    }}
+  }}
+
   function setupSidebarObserver() {{
     let throttleTimer = null;
     const observer = new MutationObserver(() => {{
@@ -1325,6 +1557,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         throttleTimer = null;
         const count = window.LocalFlacPlayer?.flacCount || 129;
         injectSidebarRow(count);
+        injectSettingsToggle();
       }}, 500);
     }});
     observer.observe(document.body, {{ childList: true, subtree: true }});
@@ -1332,17 +1565,18 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     setInterval(() => {{
       const count = window.LocalFlacPlayer?.flacCount || 129;
       injectSidebarRow(count);
-    }}, 3000);
+      injectSettingsToggle();
+    }}, 2000);
   }}
 
   // ==========================================================
-  // 7. INITIALIZATION
+  // 8. INITIALIZATION
   // ==========================================================
   window.LocalFlacPlayer = new FlacPlayer();
   setupRouting();
   setupSidebarObserver();
 
-  console.log("[LocalFLAC] Integration v2 initialized successfully.");
+  console.log("[LocalFLAC] Integration v2.1 initialized successfully.");
 }})();
 '''
 

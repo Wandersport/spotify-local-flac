@@ -117,99 +117,154 @@
   transform: scale(1.03);
 }
 
-/* Tabs */
+/* Filter Chips / Tabs */
 .lf-tabs {
   display: flex;
   gap: 8px;
   margin-bottom: 24px;
-  border-bottom: 1px solid #282828;
-  padding-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
+.lf-tab-btn,
 .lf-tab {
-  background: transparent;
+  background-color: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
   border: none;
-  color: #b3b3b3;
-  font-size: 15px;
-  font-weight: 700;
+  border-radius: 32px;
   padding: 8px 16px;
-  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
-  transition: color 0.2s, background-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s, transform 0.1s, color 0.2s;
+  font-family: inherit;
+  user-select: none;
 }
 
+.lf-tab-btn:hover,
 .lf-tab:hover {
+  background-color: rgba(255, 255, 255, 0.14);
   color: #ffffff;
-  background-color: #1f1f1f;
 }
 
+.lf-tab-btn.active,
 .lf-tab.active {
-  color: #ffffff;
-  background-color: #282828;
+  background-color: #ffffff;
+  color: #000000;
+}
+
+.lf-tab-btn.active .lf-tab-count,
+.lf-tab.active .lf-tab-count {
+  color: #000000;
+  opacity: 0.75;
+}
+
+.lf-tab-count {
+  font-size: 12px;
+  opacity: 0.75;
 }
 
 /* Track list table */
+.lf-track-table,
 .lf-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
   font-size: 14px;
+  table-layout: fixed;
 }
 
+.lf-track-table th,
 .lf-table th {
   color: #b3b3b3;
   border-bottom: 1px solid #282828;
   padding: 8px 16px;
   font-weight: 500;
   text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0.5px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  user-select: none;
 }
 
+.lf-track-row,
 .lf-table tr {
   height: 56px;
   border-radius: 4px;
   transition: background-color 0.15s;
 }
 
+.lf-track-row:hover,
 .lf-table tr:hover {
   background-color: rgba(255, 255, 255, 0.07);
 }
 
+.lf-track-row.playing,
 .lf-table tr.playing {
   color: #1ed760;
 }
 
-.lf-table tr.playing .lf-track-title {
-  color: #1ed760;
-}
-
+.lf-track-row td,
 .lf-table td {
   padding: 8px 16px;
   vertical-align: middle;
 }
 
+.lf-col-num,
 .lf-td-index {
-  width: 40px;
+  width: 44px;
   color: #b3b3b3;
   text-align: center;
+  position: relative;
 }
 
+.lf-row-play-btn {
+  background: none;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin: 0 auto;
+}
+
+.lf-row-play-btn:hover {
+  transform: scale(1.1);
+  color: #1ed760;
+}
+
+.lf-track-row:hover .lf-row-play-btn,
+.lf-track-row.playing .lf-row-play-btn,
+.lf-table tr:hover .lf-row-play-btn,
+.lf-table tr.playing .lf-row-play-btn {
+  display: inline-flex;
+}
+
+.lf-track-row:hover .lf-track-idx,
+.lf-track-row.playing .lf-track-idx,
+.lf-table tr:hover .lf-track-idx,
+.lf-table tr.playing .lf-track-idx {
+  display: none;
+}
+
+.lf-col-title,
 .lf-td-title {
+  width: 45%;
+  min-width: 180px;
+}
+
+.lf-track-title-cell {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 250px;
-}
-
-.lf-track-art-sm,
-.lf-row-art img {
-  width: 40px;
-  height: 40px;
-  border-radius: 4px;
-  object-fit: cover;
-  background-color: #282828;
-  display: block;
+  overflow: hidden;
 }
 
 .lf-row-art {
@@ -219,6 +274,13 @@
   overflow: hidden;
   flex-shrink: 0;
   background-color: #282828;
+}
+
+.lf-row-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .lf-row-art-fallback {
@@ -231,27 +293,71 @@
   font-size: 18px;
 }
 
-.lf-track-text {
+.lf-track-meta {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
-.lf-track-title {
+.lf-track-name {
   color: #ffffff;
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
+}
+
+.lf-track-row.playing .lf-track-name,
+.lf-track-name.highlight {
+  color: #1ed760;
 }
 
 .lf-track-artist {
   color: #b3b3b3;
-  font-size: 13px;
+  font-size: 12px;
+  margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.lf-col-album {
+  width: 30%;
+  min-width: 120px;
+  color: #b3b3b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.lf-col-format {
+  width: 18%;
+  min-width: 110px;
+}
+
+.lf-codec-pill {
+  display: inline-block;
+  white-space: nowrap;
+  background: rgba(30, 215, 96, 0.15);
+  color: #1ed760;
+  border: 1px solid rgba(30, 215, 96, 0.3);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.lf-col-duration {
+  width: 70px;
+  text-align: right;
+  color: #b3b3b3;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
 }
 
 .lf-badge-flac {
