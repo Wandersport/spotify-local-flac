@@ -22,20 +22,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         os.path.expanduser("~/Music")
     ],
     "exclude_patterns": [
-        ".*",
         "*recycle*",
         "*trash*",
         "*lost+found*"
     ],
     "supported_extensions": [
         ".flac",
-        ".alac",
         ".wav",
         ".mp3",
-        ".ogg",
         ".m4a",
-        ".opus",
-        ".aiff"
+        ".ogg",
+        ".opus"
     ],
     "database_path": DEFAULT_DB_FILE,
     "watch_directories": True,
@@ -146,6 +143,9 @@ class Config:
 
     @property
     def log_level(self) -> str:
+        env_level = os.environ.get("LOG_LEVEL")
+        if env_level:
+            return env_level.strip().upper()
         return self.data.get("log_level", "INFO").upper()
 
     def add_directory(self, path: str) -> bool:

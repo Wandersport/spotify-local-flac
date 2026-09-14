@@ -12,7 +12,6 @@ from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
 from mutagen.wave import WAVE
-from mutagen.aiff import AIFF
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +151,7 @@ def extract_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                 if any(k.startswith("APIC") for k in audio.tags.keys()):
                     has_artwork = True
 
-        elif ext in (".m4a", ".alac"):
+        elif ext in (".m4a", ".mp4"):
             audio = MP4(file_path)
             codec = "ALAC" if "alac" in getattr(audio.info, "codec", "").lower() else "AAC"
             if audio.info:
@@ -307,7 +306,7 @@ def extract_artwork_bytes(file_path: str) -> Tuple[Optional[bytes], Optional[str
                         mime = apic.mime or "image/jpeg"
                         return apic.data, mime
 
-        elif ext in (".m4a", ".alac"):
+        elif ext in (".m4a", ".mp4"):
             audio = MP4(file_path)
             if audio.tags and "covr" in audio.tags:
                 covers = audio.tags["covr"]
