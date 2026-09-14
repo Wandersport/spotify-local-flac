@@ -3,6 +3,7 @@
 import os
 import re
 import json
+import hmac
 import logging
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -20,10 +21,14 @@ MIME_MAP = {
     "wav": "audio/wav",
     "mp3": "audio/mpeg",
     "ogg": "audio/ogg",
-    "opus": "audio/ogg",
+    "opus": "audio/ogg; codecs=opus",
     "m4a": "audio/mp4",
-    "alac": "audio/mp4",
-    "aiff": "audio/aiff"
+    "mp4": "audio/mp4"
+}
+
+ALLOWED_ORIGINS = {
+    "https://xpui.app.spotify.com",
+    "null"
 }
 
 
@@ -37,6 +42,7 @@ class APIHandler(BaseHTTPRequestHandler):
     config: Config
     db: Database
     scanner: LibraryScanner
+    watcher: Optional[Any] = None
 
     # Suppress default server version in headers for security
     server_version = "SpotifyLocalFLAC/1.0"
@@ -47,7 +53,16 @@ class APIHandler(BaseHTTPRequestHandler):
             logger.debug("%s - - [%s] %s", self.address_string(), self.log_date_time_string(), format % args)
 
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if origin:
+            if (origin in ALLOWED_ORIGINS or
+                origin.startswith("http://127.0.0.1:") or
+                origin.startswith("http://localhost:")):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "https://xpui.app.spotify.com")
+
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Range")
         self.send_header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, ETag")
@@ -66,21 +81,26 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({"error": message, "status": status}, status=status)
 
     def _check_auth(self, query_params: Dict[str, list]) -> bool:
-        """Validate token from Authorization header or URL query parameter."""
+        """Validate token from Authorization header or URL query parameter.
+        
+        Note: HTML5 <audio> and <img> elements cannot send custom Authorization HTTP
+        headers in standard browser APIs, so query parameter token authentication (?token=...)
+        is technically necessary for media stream and artwork requests.
+        """
         expected_token = self.config.auth_token
         if not expected_token:
             return True
 
-        # Check Authorization header
+        # Check Authorization header (constant-time comparison)
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
-            if token == expected_token:
+            if hmac.compare_digest(token, expected_token):
                 return True
 
-        # Check query parameter ?token=...
+        # Check query parameter ?token=... (constant-time comparison)
         if "token" in query_params:
-            if query_params["token"][0] == expected_token:
+            if hmac.compare_digest(query_params["token"][0], expected_token):
                 return True
 
         return False
@@ -173,7 +193,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _handle_status(self) -> None:
         stats = self.db.get_stats()
-        scanner_status = self.scanner.get_status()
+        scanner_status = (
+            self.scanner.get_status()
+            if self.scanner
+            else {"is_scanning": False, "tracks_found": 0, "last_scan": None, "current_file": None}
+        )
         self._send_json({
             "status": "online",
             "stats": stats,
@@ -209,6 +233,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
             success = self.config.add_directory(directory)
             if success:
+                if hasattr(self, "watcher") and self.watcher:
+                    try:
+                        self.watcher.add_root(directory)
+                    except Exception as e:
+                        logger.warning("Error adding watcher root for %s: %s", directory, e)
                 self.scanner.scan_async()
             self._send_json({
                 "success": success,
@@ -216,6 +245,15 @@ class APIHandler(BaseHTTPRequestHandler):
             })
         elif action == "remove":
             success = self.config.remove_directory(directory)
+            if success:
+                if hasattr(self, "watcher") and self.watcher:
+                    try:
+                        self.watcher.remove_root(directory)
+                    except Exception as e:
+                        logger.warning("Error removing watcher root for %s: %s", directory, e)
+                # Immediately remove tracks belonging exclusively to that removed source
+                deleted_count = self.db.delete_tracks_by_prefix(directory)
+                logger.info("Removed %d tracks belonging to removed source: %s", deleted_count, directory)
             self._send_json({
                 "success": success,
                 "music_directories": self.config.music_directories
@@ -228,9 +266,10 @@ class APIHandler(BaseHTTPRequestHandler):
         artist = query.get("artist", [None])[0]
         album = query.get("album", [None])[0]
         folder = query.get("folder", [None])[0]
+        codec = query.get("codec", [None])[0]
         sort_by = query.get("sort_by", ["title"])[0]
         sort_order = query.get("sort_order", ["asc"])[0]
-        limit = min(5000, max(1, int(query.get("limit", [1000])[0])))
+        limit = max(1, min(10000, int(query.get("limit", [500])[0])))
         offset = max(0, int(query.get("offset", [0])[0]))
 
         tracks, total = self.db.query_tracks(
@@ -238,6 +277,7 @@ class APIHandler(BaseHTTPRequestHandler):
             artist=artist,
             album=album,
             folder=folder,
+            codec=codec,
             sort_by=sort_by,
             sort_order=sort_order,
             limit=limit,

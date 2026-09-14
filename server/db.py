@@ -10,6 +10,11 @@ from typing import List, Dict, Any, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def escape_like(s: str) -> str:
+    """Escape special characters for SQL LIKE pattern matching."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class Database:
     def __init__(self, db_path: str):
         self.db_path = os.path.abspath(os.path.expanduser(db_path))
@@ -34,6 +39,16 @@ class Database:
             conn.execute("PRAGMA cache_size=-64000;")  # 64MB cache
             self._local.conn = conn
         return self._local.conn
+
+    def close(self) -> None:
+        """Close connection if open."""
+        with self._lock:
+            if hasattr(self._local, "conn") and self._local.conn is not None:
+                try:
+                    self._local.conn.close()
+                except Exception:
+                    pass
+                self._local.conn = None
 
     def init_db(self) -> None:
         """Initialize SQLite database tables and indices."""
@@ -99,6 +114,19 @@ class Database:
         with self._lock:
             conn = self._get_connection()
             now = time.time()
+            data = {
+                "album_artist": None,
+                "genre": None,
+                "year": None,
+                "track_number": None,
+                "disc_number": None,
+                "bitrate": None,
+                "bit_depth": None,
+                "channels": 2,
+                "sample_rate": 44100,
+                **track,
+                "created_at": now,
+            }
             with conn:
                 cursor = conn.execute("""
                     INSERT INTO tracks (
@@ -129,8 +157,64 @@ class Database:
                         file_size=excluded.file_size,
                         mtime=excluded.mtime,
                         has_artwork=excluded.has_artwork;
-                """, {**track, "created_at": now})
+                """, data)
                 return cursor.lastrowid or 0
+
+    def upsert_tracks_batch(self, tracks: List[Dict[str, Any]]) -> int:
+        """Insert or update a list of track records in a single transaction."""
+        if not tracks:
+            return 0
+        with self._lock:
+            conn = self._get_connection()
+            now = time.time()
+            prepared = [
+                {
+                    "album_artist": None,
+                    "genre": None,
+                    "year": None,
+                    "track_number": None,
+                    "disc_number": None,
+                    "bitrate": None,
+                    "bit_depth": None,
+                    "channels": 2,
+                    "sample_rate": 44100,
+                    **t,
+                    "created_at": now,
+                }
+                for t in tracks
+            ]
+            with conn:
+                conn.executemany("""
+                    INSERT INTO tracks (
+                        path, filename, title, artist, album, album_artist, genre,
+                        year, track_number, disc_number, duration, codec, sample_rate,
+                        bit_depth, channels, bitrate, file_size, mtime, has_artwork, created_at
+                    ) VALUES (
+                        :path, :filename, :title, :artist, :album, :album_artist, :genre,
+                        :year, :track_number, :disc_number, :duration, :codec, :sample_rate,
+                        :bit_depth, :channels, :bitrate, :file_size, :mtime, :has_artwork, :created_at
+                    )
+                    ON CONFLICT(path) DO UPDATE SET
+                        filename=excluded.filename,
+                        title=excluded.title,
+                        artist=excluded.artist,
+                        album=excluded.album,
+                        album_artist=excluded.album_artist,
+                        genre=excluded.genre,
+                        year=excluded.year,
+                        track_number=excluded.track_number,
+                        disc_number=excluded.disc_number,
+                        duration=excluded.duration,
+                        codec=excluded.codec,
+                        sample_rate=excluded.sample_rate,
+                        bit_depth=excluded.bit_depth,
+                        channels=excluded.channels,
+                        bitrate=excluded.bitrate,
+                        file_size=excluded.file_size,
+                        mtime=excluded.mtime,
+                        has_artwork=excluded.has_artwork;
+                """, prepared)
+                return len(tracks)
 
     def get_track_mtime(self, path: str) -> Optional[Tuple[float, int]]:
         """Get (mtime, file_size) for path if known."""
@@ -161,6 +245,17 @@ class Database:
                     total += cur.rowcount
                 return total
 
+    def delete_tracks_by_prefix(self, path_prefix: str) -> int:
+        """Delete tracks under a specific directory path prefix (e.g. removed music source)."""
+        with self._lock:
+            conn = self._get_connection()
+            with conn:
+                real_prefix = os.path.realpath(os.path.abspath(os.path.expanduser(path_prefix)))
+                escaped_prefix = escape_like(real_prefix)
+                sql = "DELETE FROM tracks WHERE path = ? OR path LIKE ? ESCAPE '\\'"
+                cur = conn.execute(sql, (real_prefix, f"{escaped_prefix}/%"))
+                return cur.rowcount
+
     def delete_track_by_path(self, path: str) -> bool:
         with self._lock:
             conn = self._get_connection()
@@ -186,19 +281,20 @@ class Database:
         artist: Optional[str] = None,
         album: Optional[str] = None,
         folder: Optional[str] = None,
+        codec: Optional[str] = None,
         sort_by: str = "title",
         sort_order: str = "asc",
         limit: int = 1000,
         offset: int = 0
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Query tracks with filters and pagination."""
+        """Query tracks with filters, safe SQL LIKE escaping, server-side sorting, and pagination."""
         conn = self._get_connection()
         conditions = []
         params: List[Any] = []
 
         if search:
-            q = f"%{search}%"
-            conditions.append("(title LIKE ? OR artist LIKE ? OR album LIKE ? OR filename LIKE ?)")
+            q = f"%{escape_like(search)}%"
+            conditions.append("(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\' OR filename LIKE ? ESCAPE '\\')")
             params.extend([q, q, q, q])
 
         if artist:
@@ -209,25 +305,31 @@ class Database:
             conditions.append("album = ?")
             params.append(album)
 
+        if codec:
+            conditions.append("UPPER(codec) = ?")
+            params.append(codec.strip().upper())
+
         if folder:
             f = os.path.realpath(os.path.abspath(os.path.expanduser(folder)))
-            conditions.append("(path LIKE ? OR path = ?)")
-            params.extend([f"{f}/%", f])
+            escaped_f = escape_like(f)
+            conditions.append("(path LIKE ? ESCAPE '\\' OR path = ?)")
+            params.extend([f"{escaped_f}/%", f])
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         valid_sort_fields = {
-            "title": "title COLLATE NOCASE",
-            "artist": "artist COLLATE NOCASE",
-            "album": "album COLLATE NOCASE",
-            "year": "year",
-            "duration": "duration",
-            "track_number": "disc_number, track_number",
-            "created_at": "created_at",
-            "mtime": "mtime"
+            "title": ["title COLLATE NOCASE", "artist COLLATE NOCASE"],
+            "artist": ["artist COLLATE NOCASE", "album COLLATE NOCASE", "track_number", "title COLLATE NOCASE"],
+            "album": ["album COLLATE NOCASE", "disc_number", "track_number", "title COLLATE NOCASE"],
+            "year": ["year", "album COLLATE NOCASE", "track_number"],
+            "duration": ["duration"],
+            "track_number": ["disc_number", "track_number", "title COLLATE NOCASE"],
+            "created_at": ["created_at"],
+            "mtime": ["mtime"]
         }
-        order_col = valid_sort_fields.get(sort_by.lower(), "title COLLATE NOCASE")
+        cols = valid_sort_fields.get(sort_by.lower(), ["title COLLATE NOCASE"])
         direction = "DESC" if sort_order.lower() == "desc" else "ASC"
+        order_clause = ", ".join(f"{c} {direction}" for c in cols)
 
         # Count total matching
         count_sql = f"SELECT COUNT(*) as cnt FROM tracks {where_clause}"
@@ -237,22 +339,23 @@ class Database:
         sql = f"""
             SELECT * FROM tracks
             {where_clause}
-            ORDER BY {order_col} {direction}
+            ORDER BY {order_clause}
             LIMIT ? OFFSET ?
         """
-        params.extend([limit, offset])
-        cursor = conn.execute(sql, params)
+        fetch_params = list(params)
+        fetch_params.extend([limit, offset])
+        cursor = conn.execute(sql, fetch_params)
         tracks = [dict(r) for r in cursor.fetchall()]
         return tracks, total
 
     def get_albums(self, search: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get aggregated albums list."""
+        """Get aggregated albums list with safe search escaping."""
         conn = self._get_connection()
         where = ""
         params: List[Any] = []
         if search:
-            where = "WHERE album LIKE ? OR artist LIKE ?"
-            q = f"%{search}%"
+            where = "WHERE album LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\'"
+            q = f"%{escape_like(search)}%"
             params = [q, q]
 
         sql = f"""
@@ -273,13 +376,13 @@ class Database:
         return [dict(r) for r in cursor.fetchall()]
 
     def get_artists(self, search: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get aggregated artists list."""
+        """Get aggregated artists list with safe search escaping."""
         conn = self._get_connection()
         where = ""
         params: List[Any] = []
         if search:
-            where = "WHERE artist LIKE ?"
-            params = [f"%{search}%"]
+            where = "WHERE artist LIKE ? ESCAPE '\\'"
+            params = [f"%{escape_like(search)}%"]
 
         sql = f"""
             SELECT
