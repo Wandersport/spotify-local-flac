@@ -186,7 +186,7 @@ async function main() {
   })()`);
   console.log("Seek test (to 30s):", seekTest);
 
-  // 6. VERIFY NATIVE LOCAL FILES COLLECTION (1,741 tracks)
+  // 6. VERIFY NATIVE LOCAL FILES COLLECTION
   console.log("\n--- STEP 6: Navigating to Native Local Files ---");
   await evaluate(`(() => {
     window.Spicetify.Platform.History.push('/collection/local-files');
@@ -196,7 +196,7 @@ async function main() {
   const nativeFilesState = await evaluate(`(() => {
     const h1 = document.querySelector('h1')?.innerText;
     const sidebarRow = Array.from(document.querySelectorAll('*')).find(
-      el => el.textContent.includes('1,741 tracks')
+      el => el.textContent.includes('Local Files')
     );
     return {
       pageTitle: h1,

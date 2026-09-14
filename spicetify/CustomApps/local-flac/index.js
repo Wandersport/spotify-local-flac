@@ -211,10 +211,10 @@ const { useState, useEffect, useCallback, useMemo } = React;
     };
 
     const stats = (status && status.stats) || {};
-    const flacCount = stats.flac_count || 129;
-    const totalCount = stats.total_tracks || 1880;
-    const albumCount = stats.total_albums || 170;
-    const artistCount = stats.total_artists || 9;
+    const flacCount = stats.flac_count || 0;
+    const totalCount = stats.total_tracks || 0;
+    const albumCount = stats.total_albums || 0;
+    const artistCount = stats.total_artists || 0;
 
     const handleSort = useCallback((col) => {
       setSortCol(prevCol => {
@@ -628,8 +628,8 @@ const { useState, useEffect, useCallback, useMemo } = React;
           React.createElement("button", {
             className: "lf-btn",
             onClick: handleOpenNativeLocalFiles,
-            title: "View Spotify native Local Files (1,741 tracks)"
-          }, "Native Local Files (1,741)"),
+            title: "View Spotify native Local Files"
+          }, "Native Local Files"),
           React.createElement("button", {
             className: "lf-btn",
             onClick: () => setShowSettings(true)

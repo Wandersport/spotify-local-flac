@@ -960,7 +960,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       fetch(`${{getBaseUrl()}}/api/status`, {{ headers: getApiHeaders() }})
         .then(r => r.json())
         .then(data => {{
-          this.flacCount = data.stats?.flac_count || 129;
+          this.flacCount = data.stats?.flac_count || 0;
           injectSidebarRow(this.flacCount);
         }})
         .catch(() => {{}});
@@ -1351,10 +1351,10 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
               React.createElement("span", {{ className: "lf-audiophile-badge" }}, "Hi-Res Audio")
             ),
             React.createElement("div", {{ className: "lf-stats-row" }},
-              React.createElement("span", {{ className: "lf-stat-pill lf-stat-pill-flac" }}, `${{stats.flac_count || 129}} FLACs`),
-              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_tracks || 1880}} Total Tracks`),
-              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_albums || 170}} Albums`),
-              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_artists || 9}} Artists`)
+              React.createElement("span", {{ className: "lf-stat-pill lf-stat-pill-flac" }}, `${{stats.flac_count || 0}} FLACs`),
+              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_tracks || 0}} Total Tracks`),
+              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_albums || 0}} Albums`),
+              React.createElement("span", {{ className: "lf-stat-pill" }}, `${{stats.total_artists || 0}} Artists`)
             )
           ),
 
@@ -1375,9 +1375,9 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
             }}, isScanning ? "Scanning..." : "Rescan"),
             React.createElement("button", {{
               className: "lf-btn",
-              title: "Open Spotify Native Local Files Collection (1,741 tracks)",
+              title: "Open Spotify Native Local Files Collection",
               onClick: () => window.Spicetify.Platform.History.push('/collection/local-files')
-            }}, "Native Local Files (1,741)"),
+            }}, "Native Local Files"),
             React.createElement("button", {{
               className: "lf-btn",
               onClick: () => setShowSettings(true)
@@ -1397,7 +1397,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
                 window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
               }}
             }}
-          }}, `FLAC Only (${{stats.flac_count || 129}})`),
+          }}, `FLAC Only (${{stats.flac_count || 0}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "all" ? "active" : ""}}`,
             onClick: () => {{
@@ -1408,7 +1408,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
                 window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
               }}
             }}
-          }}, `All Local (${{stats.total_tracks || 1880}})`),
+          }}, `All Local (${{stats.total_tracks || 0}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "albums" ? "active" : ""}}`,
             onClick: () => {{
@@ -1417,7 +1417,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
                 window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
               }}
             }}
-          }}, `Albums (${{stats.total_albums || 170}})`),
+          }}, `Albums (${{stats.total_albums || 0}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "artists" ? "active" : ""}}`,
             onClick: () => {{
@@ -1426,7 +1426,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
                 window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
               }}
             }}
-          }}, `Artists (${{stats.total_artists || 9}})`),
+          }}, `Artists (${{stats.total_artists || 0}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "folders" ? "active" : ""}}`,
             onClick: () => {{
@@ -1654,7 +1654,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     }}
 
     // Ensure sidebar row is injected and has proper active state
-    injectSidebarRow(window.LocalFlacPlayer?.flacCount || 129);
+    injectSidebarRow(window.LocalFlacPlayer?.flacCount || 0);
 
     if (path === "/preferences" || path.startsWith("/preferences")) {{
       setTimeout(injectSettingsToggle, 200);
@@ -1718,7 +1718,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     const subtitleSpan = flacRow.querySelector(".t2qx66PtSUA0l8Eh") ||
                          flacRow.querySelector('[data-encore-id="listRowSubtitle"]');
     if (subtitleSpan) {{
-      subtitleSpan.textContent = `Folder • ${{flacCount || 129}} tracks`;
+      subtitleSpan.textContent = `Folder • ${{flacCount || 0}} tracks`;
     }}
 
     // Highlight state
@@ -1827,7 +1827,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       if (throttleTimer) return;
       throttleTimer = setTimeout(() => {{
         throttleTimer = null;
-        const count = window.LocalFlacPlayer?.flacCount || 129;
+        const count = window.LocalFlacPlayer?.flacCount || 0;
         injectSidebarRow(count);
         injectSettingsToggle();
       }}, 500);
@@ -1835,7 +1835,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
     observer.observe(document.body, {{ childList: true, subtree: true }});
 
     setInterval(() => {{
-      const count = window.LocalFlacPlayer?.flacCount || 129;
+      const count = window.LocalFlacPlayer?.flacCount || 0;
       injectSidebarRow(count);
       injectSettingsToggle();
     }}, 2000);

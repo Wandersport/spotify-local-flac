@@ -15,10 +15,10 @@
 - **Sortable Track Table**: Interactive ascending and descending sorting on **TITLE**, **ARTIST**, and **ALBUM** columns with locale-aware ordering (handling numbers, accents, and punctuation) and visible row numbering.
 - **Dedicated Artist Column**: Clean artist column matching Spotify's native layout: `#`, `TITLE`, `ARTIST`, `ALBUM`, `⏱`.
 - **Filter Chips**: Spotify-native styled pills for quick filtering:
-  - **FLAC Only (129)**
-  - **All Local (1,880)**
-  - **Albums (170)**
-  - **Artists (9)**
+  - **FLAC Only**
+  - **All Local**
+  - **Albums**
+  - **Artists**
   - **Folders**
   - **Recently Played**
 - **Hierarchical Folder Explorer**: Breadcrumb navigation for directory trees with subfolder drill-down, empty-folder handling, and direct playback of entire folders.
@@ -192,20 +192,14 @@ systemctl --user stop spotify-local-flac.service
 
 ## Technical Notes / Native Spotify Limitations
 
-Spotify's native desktop client hardcodes support strictly for `.mp3`, `.m4a`, and `.mp4` files via its internal `libplayback` scanner:
+Spotify's native "Local Files" feature and the Local FLAC companion library operate through separate indexing and playback paths:
 
-| Storage Inventory | Track Count | Formats Included |
-| :--- | :--- | :--- |
-| **Files on Disk** | **1,880** | 129 FLAC, 1,604 MP3, 137 M4A (136 AAC, 1 ALAC), 10 WAV |
-| **Spotify Native "Local Files"** | **1,741** | 1,604 MP3, 137 M4A *(FLAC & WAV excluded)* |
-| **Local FLAC Integration** | **1,880** | 129 FLAC, 1,604 MP3, 137 M4A, 10 WAV *(100% indexed)* |
+- **Format Demuxing**: Spotify's native desktop client scans for common compressed formats (`.mp3`, `.m4a`, `.mp4`) via its closed-source playback engine, dropping unsupported formats like `.flac`.
+- **Playback Pipeline**: Native Spotify rejects synthetic `spotify:local:...` FLAC URIs with `command_not_allowed`. Local FLAC bridges this by routing lossless FLAC playback through an integrated HTML5 audio pipeline in the desktop client (CEF), fed by the local streaming daemon.
+- **Separate Indexing**: Spotify's native Local Files view and the Local FLAC library index files independently from your configured directories. Adding FLAC files does not modify Spotify's native local database.
+- **Cloud Playlists**: FLAC files played via Local FLAC are local to your machine and are not uploaded to Spotify's server-synced cloud playlists.
 
-Because native Spotify lacks a FLAC demuxer in its closed-source playback pipeline:
-- Native Spotify drops FLAC files during local scanning and rejects synthetic `spotify:local:...` FLAC URIs with `command_not_allowed`.
-- FLAC tracks cannot be placed into native Spotify server-synced cloud playlists.
-- Local FLAC bridges this limitation by providing full, lossless playback in the client with dedicated library browsing, folder navigation, and synchronized queue management.
-
-For complete forensic analysis and disassembly notes, refer to [AUDIT.md](AUDIT.md).
+For historical verification notes from a sample test library audit, see [AUDIT.md](AUDIT.md).
 
 ---
 

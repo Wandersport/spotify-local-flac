@@ -1,17 +1,21 @@
-# Forensic Track Audit: Companion Index vs. Spotify Native Local Files
+# Historical Test Audit: Companion Index vs. Spotify Native Local Files
+
+> [!IMPORTANT]
+> **Snapshot of one test library at the time of audit.**
+> These counts describe one specific local library snapshot and are **not** Spotify Local Files capacity limits or project limits. Spotify's native Local Files feature can handle libraries of thousands of tracks (e.g. 3,000+). The observed numbers below reflect solely the contents of the test library used during this diagnostic audit.
 
 ## Executive Summary
 
-A complete bit-level cross-comparison was performed between:
-1. **Spotify Desktop Native Local Files** (via `Spicetify.Platform.LocalFilesAPI.getTracks()`) — **1,741 tracks**.
-2. **Spotify Local FLAC Companion Index** (via `library.db`) — **1,880 total tracks** (129 FLAC, 1,751 non-FLAC).
-3. **Physical Storage on Disk** (`/home/admin/Music` and `/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]`) — **1,880 audio files**.
+During testing of the scanner on a specific local music collection, a bit-level cross-comparison was performed between:
+1. **Spotify Desktop Native Local Files** (via `Spicetify.Platform.LocalFilesAPI.getTracks()`) — 1,741 tracks found in test library.
+2. **Spotify Local FLAC Companion Index** (via `library.db`) — 1,880 total tracks found in test library (129 FLAC, 1,751 non-FLAC).
+3. **Physical Storage on Disk** (`/home/admin/Music` and `/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]`) — 1,880 audio files found in test library.
 
-Following the scanner fix to allow valid supported audio files whose names begin with a period, the companion index perfectly matches 100% of the physical audio files on disk (1,880 / 1,880). The difference between the companion index and Spotify native (1,880 - 1,741 = 139 tracks) is entirely accounted for by the two lossless formats that Spotify's native C++ engine does not support: **129 FLAC tracks** and **10 WAV tracks**.
+Following the scanner fix to allow valid supported audio files whose names begin with a period, the companion index matched all 1,880 physical audio files on disk in this sample library. The difference in this specific library (1,880 - 1,741 = 139 tracks) was accounted for by formats that Spotify's native C++ engine did not scan: 129 FLAC tracks and 10 WAV tracks.
 
 ---
 
-## 1. Storage Inventory & Track Reconciliation
+## 1. Test Library Storage Inventory & Track Reconciliation
 
 | Audio Format | Files on Disk | Companion Index | Spotify Native | Status / Demuxer Support |
 | :--- | :---: | :---: | :---: | :--- |
@@ -70,6 +74,6 @@ Prior to the scanner update, the companion daemon excluded:
 
 ## 4. Playback Integrity Verification
 
-- **Companion Daemon**: Supports bit-perfect streaming of all 129 FLAC files, 10 WAV files, and 1,741 MP3/M4A files via HTTP 206 partial range streaming.
+- **Companion Daemon**: Supports lossless streaming of all audio files in the test library via HTTP 206 partial range streaming.
 - **Chromium CEF Audio Engine**: Chromium natively decodes RIFF WAVE (`audio/wav`) and FLAC (`audio/flac`) up to 24-bit / 192 kHz PCM without transcoding.
 - **No Playback Changes Required**: In accordance with instructions, playback mechanics remain untouched as all stream endpoints, codecs, and Spicetify bindings are operating correctly.
