@@ -128,25 +128,27 @@ Example configuration:
   "host": "127.0.0.1",
   "port": 18492,
   "music_directories": [
-    "/home/admin/Music",
-    "/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]"
+    "/home/user/Music",
+    "/mnt/storage/Music"
   ],
   "exclude_patterns": [
+    ".git*",
+    ".cache*",
+    ".Trash*",
+    ".DS_Store*",
     "*recycle*",
     "*trash*",
     "*lost+found*"
   ],
   "supported_extensions": [
     ".flac",
-    ".alac",
     ".wav",
     ".mp3",
-    ".ogg",
     ".m4a",
-    ".opus",
-    ".aiff"
+    ".ogg",
+    ".opus"
   ],
-  "database_path": "/home/admin/.local/share/spotify-local-flac/library.db",
+  "database_path": "/home/user/.local/share/spotify-local-flac/library.db",
   "watch_directories": true,
   "log_level": "INFO"
 }
@@ -196,10 +198,9 @@ Spotify's native "Local Files" feature and the Local FLAC companion library oper
 
 - **Format Demuxing**: Spotify's native desktop client scans for common compressed formats (`.mp3`, `.m4a`, `.mp4`) via its closed-source playback engine, dropping unsupported formats like `.flac`.
 - **Playback Pipeline**: Native Spotify rejects synthetic `spotify:local:...` FLAC URIs with `command_not_allowed`. Local FLAC bridges this by routing lossless FLAC playback through an integrated HTML5 audio pipeline in the desktop client (CEF), fed by the local streaming daemon.
+- **Supported Codecs**: Native Chromium/CEF decoding supports `.flac`, `.wav`, `.mp3`, `.m4a` (AAC/ALAC), `.ogg` (Vorbis), and `.opus`. Note that standalone `.alac` files and AIFF (`.aiff`) are not supported natively by Chromium CEF; ALAC audio is supported inside `.m4a` containers.
 - **Separate Indexing**: Spotify's native Local Files view and the Local FLAC library index files independently from your configured directories. Adding FLAC files does not modify Spotify's native local database.
 - **Cloud Playlists**: FLAC files played via Local FLAC are local to your machine and are not uploaded to Spotify's server-synced cloud playlists.
-
-For historical verification notes from a sample test library audit, see [AUDIT.md](AUDIT.md).
 
 ---
 
@@ -219,8 +220,10 @@ cd ~/Projects/spotify-local-flac
 ## Security & Privacy
 
 - **Localhost Binding**: The companion daemon binds strictly to `127.0.0.1` and never opens external network ports.
-- **Path Traversal Sanitization**: All file requests are canonicalized with `os.path.realpath` and checked against allowed directories. Traversal attempts outside configured music directories are rejected with `403 Forbidden`.
-- **Bearer Authentication**: An automatically generated 256-bit token (`~/.config/spotify-local-flac/token`, permission `0600`) authenticates all API and streaming requests.
+- **CORS Restriction**: HTTP responses enforce strict `Access-Control-Allow-Origin` filtering limited to Spotify's internal client origins (`https://xpui.app.spotify.com`, `null`, `127.0.0.1`, `localhost`).
+- **Timing-Safe Authentication**: API tokens are validated using constant-time `hmac.compare_digest` to eliminate side-channel timing attacks.
+- **Path Traversal & Symlink Safety**: All file and folder operations are resolved via `os.path.realpath` and checked against configured music directories. Symlinks pointing outside configured roots are rejected with `403 Forbidden`. Directory symlinks are not followed during scans or inotify registration to prevent recursive symlink loops and directory escapes.
+- **Media Token Authentication**: A 256-bit secret token (`~/.config/spotify-local-flac/token`, permission `0600`) authenticates all API and media requests. HTML5 `<audio>` and `<img>` elements authenticate via `?token=` query parameters because standard browser media elements cannot attach custom `Authorization` HTTP headers.
 - **Zero Telemetry**: No analytics, telemetry, or personal data leaves your local machine.
 
 ---

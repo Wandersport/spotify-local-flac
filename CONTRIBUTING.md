@@ -18,9 +18,14 @@ Thank you for your interest in improving Spotify Local FLAC!
 3. **Running Tests**:
    Before submitting changes, ensure all tests pass:
    ```bash
-   python3 tests/test_server.py
-   python3 tests/test_metadata.py
+   # Run full unit and integration test suite
+   python3 -m unittest discover tests
+
+   # Run performance benchmarks
    python3 tests/benchmark.py
+
+   # Run frontend table sorting tests
+   node tests/test_table_sorting.js
    ```
 
 4. **Code Quality**:
