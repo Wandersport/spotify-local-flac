@@ -519,6 +519,38 @@
   user-select: none;
 }
 
+.lf-th-sortable {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lf-th-sortable:hover {
+  color: #ffffff !important;
+}
+
+.lf-th-sortable:focus-visible {
+  outline: 1px solid #1ed760;
+}
+
+.lf-th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lf-th-sortable.sorted {
+  color: #ffffff;
+}
+
+.lf-sort-icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  color: #ffffff;
+}
+
 .lf-track-row,
 .lf-table tr {
   height: 56px;
@@ -586,7 +618,7 @@
 
 .lf-col-title,
 .lf-td-title {
-  width: 45%;
+  width: 40%;
   min-width: 180px;
 }
 
@@ -644,17 +676,8 @@
   color: #1ed760;
 }
 
-.lf-track-artist {
-  color: #b3b3b3;
-  font-size: 12px;
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lf-col-album {
-  width: 30%;
+.lf-col-artist {
+  width: 25%;
   min-width: 120px;
   color: #b3b3b3;
   white-space: nowrap;
@@ -663,23 +686,28 @@
   font-size: 13px;
 }
 
-.lf-col-format {
-  width: 18%;
-  min-width: 110px;
+.lf-artist-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
-.lf-codec-pill {
-  display: inline-block;
+.lf-col-album {
+  width: 25%;
+  min-width: 120px;
+  color: #b3b3b3;
   white-space: nowrap;
-  background: rgba(30, 215, 96, 0.15);
-  color: #1ed760;
-  border: 1px solid rgba(30, 215, 96, 0.3);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.lf-album-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .lf-col-duration {
@@ -688,6 +716,12 @@
   color: #b3b3b3;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
+}
+
+@media (max-width: 800px) {
+  .lf-col-album {
+    display: none;
+  }
 }
 
 .lf-badge-flac {
@@ -1556,7 +1590,7 @@
   function createLocalFlacComponent() {
     const React = window.Spicetify?.React;
     if (!React) return null;
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useCallback, useMemo } = React;
 
     const playIconSvg = React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 16 16", fill: "currentColor" },
       React.createElement("path", { d: "M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288V1.713z" })
@@ -1578,6 +1612,8 @@
       const [showSettings, setShowSettings] = useState(false);
       const [selectedAlbum, setSelectedAlbum] = useState(null);
       const [selectedArtist, setSelectedArtist] = useState(null);
+      const [sortCol, setSortCol] = useState(null); // null | "title" | "artist" | "album"
+      const [sortDir, setSortDir] = useState("asc"); // "asc" | "desc"
       const [playerState, setPlayerState] = useState(window.LocalFlacPlayer ? window.LocalFlacPlayer.getState() : {});
 
       useEffect(() => {
@@ -1669,6 +1705,94 @@
           fetchFolder();
         }
       }, [tab, searchQuery, selectedAlbum, selectedArtist, fetchTracks, fetchAlbums, fetchArtists, fetchRecent, fetchFolder]);
+
+      const handleSort = useCallback((col) => {
+        setSortCol(prevCol => {
+          if (prevCol === col) {
+            setSortDir(prevDir => (prevDir === "asc" ? "desc" : "asc"));
+            return col;
+          } else {
+            setSortDir("asc");
+            return col;
+          }
+        });
+      }, []);
+
+      const compareTracks = useCallback((a, b, col, dir) => {
+        let valA = "";
+        let valB = "";
+        if (col === "title") {
+          valA = (a.title || a.filename || "").trim();
+          valB = (b.title || b.filename || "").trim();
+        } else if (col === "artist") {
+          valA = (a.artist || "Unknown Artist").trim();
+          valB = (b.artist || "Unknown Artist").trim();
+        } else if (col === "album") {
+          valA = (a.album || "-").trim();
+          valB = (b.album || "-").trim();
+        }
+
+        let cmp = valA.localeCompare(valB, undefined, {
+          sensitivity: "base",
+          numeric: true
+        });
+
+        if (cmp === 0 && col !== "title") {
+          const titleA = (a.title || a.filename || "").trim();
+          const titleB = (b.title || b.filename || "").trim();
+          cmp = titleA.localeCompare(titleB, undefined, {
+            sensitivity: "base",
+            numeric: true
+          });
+        }
+
+        return dir === "asc" ? cmp : -cmp;
+      }, []);
+
+      const displayTracks = useMemo(() => {
+        if (!sortCol) return tracks;
+        return [...tracks].sort((a, b) => compareTracks(a, b, sortCol, sortDir));
+      }, [tracks, sortCol, sortDir, compareTracks]);
+
+      const sortAscSvg = React.createElement("svg", {
+        role: "img",
+        height: "12",
+        width: "12",
+        viewBox: "0 0 16 16",
+        fill: "currentColor",
+        className: "lf-sort-icon",
+        "aria-hidden": "true"
+      },
+        React.createElement("path", { d: "M14 10L8 4l-6 6h12z" })
+      );
+
+      const sortDescSvg = React.createElement("svg", {
+        role: "img",
+        height: "12",
+        width: "12",
+        viewBox: "0 0 16 16",
+        fill: "currentColor",
+        className: "lf-sort-icon",
+        "aria-hidden": "true"
+      },
+        React.createElement("path", { d: "M2 6l6 6 6-6H2z" })
+      );
+
+      const renderSortHeader = (colKey, label, width) => {
+        const isSorted = sortCol === colKey;
+        const ariaSort = isSorted ? (sortDir === "asc" ? "ascending" : "descending") : "none";
+        return React.createElement("th", {
+          className: `lf-th-sortable ${isSorted ? "sorted" : ""}`,
+          style: { width },
+          "aria-sort": ariaSort,
+          onClick: () => handleSort(colKey)
+        },
+          React.createElement("div", { className: "lf-th-content" },
+            React.createElement("span", null, label),
+            isSorted && (sortDir === "asc" ? sortAscSvg : sortDescSvg)
+          )
+        );
+      };
 
       const handlePlayTrack = (track, list) => {
         if (window.LocalFlacPlayer) {
@@ -1762,21 +1886,21 @@
           React.createElement("table", { className: "lf-track-table" },
             React.createElement("thead", null,
               React.createElement("tr", null,
-                React.createElement("th", { style: { width: "44px" } }, "#"),
-                React.createElement("th", null, "TITLE"),
-                React.createElement("th", null, "ALBUM"),
-                React.createElement("th", null, "FORMAT"),
-                React.createElement("th", { style: { width: "70px", textAlign: "right" } }, "⏱")
+                React.createElement("th", { className: "lf-col-num", style: { width: "40px" } }, "#"),
+                renderSortHeader("title", "TITLE", "40%"),
+                renderSortHeader("artist", "ARTIST", "25%"),
+                renderSortHeader("album", "ALBUM", "25%"),
+                React.createElement("th", { className: "lf-col-duration", style: { width: "70px", textAlign: "right" } }, "⏱")
               )
             ),
             React.createElement("tbody", null,
-              tracks.map((t, idx) => {
+              displayTracks.map((t, idx) => {
                 const isCurrent = t.id === currentTrackId;
                 const isPlayingThis = isCurrent && playerState.isPlaying && playerState.playbackOwner === "LOCAL_FLAC";
                 return React.createElement("tr", {
                   key: t.id,
                   className: `lf-track-row ${isCurrent ? "playing" : ""}`,
-                  onDoubleClick: () => handlePlayTrack(t, tracks)
+                  onDoubleClick: () => handlePlayTrack(t, displayTracks)
                 },
                   React.createElement("td", { className: "lf-col-num" },
                     React.createElement("span", { className: "lf-track-idx" }, idx + 1),
@@ -1785,7 +1909,7 @@
                       title: isPlayingThis ? "Pause" : "Play",
                       onClick: (e) => {
                         e.stopPropagation();
-                        isPlayingThis ? window.LocalFlacPlayer.pause() : handlePlayTrack(t, tracks);
+                        isPlayingThis ? window.LocalFlacPlayer.pause() : handlePlayTrack(t, displayTracks);
                       }
                     }, isPlayingThis ? pauseIconSvg : playIconSvg)
                   ),
@@ -1797,14 +1921,24 @@
                           : React.createElement("div", { className: "lf-row-art-fallback" }, "♪")
                       ),
                       React.createElement("div", { className: "lf-track-meta" },
-                        React.createElement("div", { className: `lf-track-name ${isCurrent ? "highlight" : ""}` }, t.title || t.filename),
-                        React.createElement("div", { className: "lf-track-artist" }, t.artist || "Unknown Artist")
+                        React.createElement("div", {
+                          className: `lf-track-name ${isCurrent ? "highlight" : ""}`,
+                          title: t.title || t.filename
+                        }, t.title || t.filename)
                       )
                     )
                   ),
-                  React.createElement("td", { className: "lf-col-album" }, t.album || "-"),
-                  React.createElement("td", { className: "lf-col-format" },
-                    React.createElement("span", { className: "lf-codec-pill" }, formatBadge(t))
+                  React.createElement("td", { className: "lf-col-artist" },
+                    React.createElement("span", {
+                      className: "lf-artist-name",
+                      title: t.artist || "Unknown Artist"
+                    }, t.artist || "Unknown Artist")
+                  ),
+                  React.createElement("td", { className: "lf-col-album" },
+                    React.createElement("span", {
+                      className: "lf-album-name",
+                      title: t.album || "-"
+                    }, t.album || "-")
                   ),
                   React.createElement("td", { className: "lf-col-duration" }, formatTime(t.duration))
                 );
@@ -1849,11 +1983,11 @@
         tab === "recent" && React.createElement("table", { className: "lf-track-table" },
           React.createElement("thead", null,
             React.createElement("tr", null,
-              React.createElement("th", { style: { width: "44px" } }, "#"),
-              React.createElement("th", null, "TITLE"),
-              React.createElement("th", null, "ARTIST"),
-              React.createElement("th", null, "FORMAT"),
-              React.createElement("th", { style: { width: "70px", textAlign: "right" } }, "⏱")
+              React.createElement("th", { className: "lf-col-num", style: { width: "40px" } }, "#"),
+              React.createElement("th", { className: "lf-col-title", style: { width: "40%" } }, "TITLE"),
+              React.createElement("th", { className: "lf-col-artist", style: { width: "25%" } }, "ARTIST"),
+              React.createElement("th", { className: "lf-col-album", style: { width: "25%" } }, "ALBUM"),
+              React.createElement("th", { className: "lf-col-duration", style: { width: "70px", textAlign: "right" } }, "⏱")
             )
           ),
           React.createElement("tbody", null,
@@ -1863,10 +1997,14 @@
               onDoubleClick: () => handlePlayTrack(h, recentTracks)
             },
               React.createElement("td", { className: "lf-col-num" }, idx + 1),
-              React.createElement("td", { className: "lf-col-title" }, h.title || h.filename),
-              React.createElement("td", { className: "lf-col-album" }, h.artist || "Unknown"),
-              React.createElement("td", { className: "lf-col-format" },
-                React.createElement("span", { className: "lf-codec-pill" }, formatBadge(h))
+              React.createElement("td", { className: "lf-col-title" },
+                React.createElement("span", { className: "lf-track-name", title: h.title || h.filename }, h.title || h.filename)
+              ),
+              React.createElement("td", { className: "lf-col-artist" },
+                React.createElement("span", { className: "lf-artist-name", title: h.artist || "Unknown Artist" }, h.artist || "Unknown Artist")
+              ),
+              React.createElement("td", { className: "lf-col-album" },
+                React.createElement("span", { className: "lf-album-name", title: h.album || "-" }, h.album || "-")
               ),
               React.createElement("td", { className: "lf-col-duration" }, formatTime(h.duration))
             ))
