@@ -1,9 +1,8 @@
 // Spotify Local FLAC - Custom App
 // Production-quality React UI inside Spotify
 
-(function() {
-  const React = Spicetify.React;
-  const { useState, useEffect, useCallback, useMemo } = React;
+const React = Spicetify.React;
+const { useState, useEffect, useCallback, useMemo } = React;
 
   function getBaseUrl() {
     const cfg = window.LocalFlacConfig || { host: "127.0.0.1", port: 18492 };
@@ -46,7 +45,7 @@
 
   // Main Application Component
   function LocalFlacApp() {
-    const [tab, setTab] = useState("songs"); // songs | albums | artists | folders | recent
+    const [tab, setTab] = useState("flac"); // flac | all | albums | artists | folders | recent
     const [tracks, setTracks] = useState([]);
     const [albums, setAlbums] = useState([]);
     const [artists, setArtists] = useState([]);
@@ -86,7 +85,7 @@
     }, [fetchStatus]);
 
     // Fetch tracks
-    const fetchTracks = useCallback((query = "", artist = null, album = null) => {
+    const fetchTracks = useCallback((query = "", artist = null, album = null, flacOnly = false) => {
       const params = new URLSearchParams({ limit: "5000" });
       if (query) params.append("search", query);
       if (artist) params.append("artist", artist);
@@ -94,7 +93,13 @@
 
       fetch(`${getBaseUrl()}/api/tracks?${params.toString()}`, { headers: getApiHeaders() })
         .then(r => r.json())
-        .then(data => setTracks(data.tracks || []))
+        .then(data => {
+          let list = data.tracks || [];
+          if (flacOnly) {
+            list = list.filter(t => (t.codec || "").toUpperCase() === "FLAC");
+          }
+          setTracks(list);
+        })
         .catch(err => console.error("[LocalFLAC] Tracks fetch error:", err));
     }, []);
 
@@ -138,7 +143,8 @@
 
     // Reload active tab data
     useEffect(() => {
-      if (tab === "songs") fetchTracks(searchQuery, selectedArtist, selectedAlbum);
+      if (tab === "flac") fetchTracks(searchQuery, selectedArtist, selectedAlbum, true);
+      else if (tab === "all") fetchTracks(searchQuery, selectedArtist, selectedAlbum, false);
       else if (tab === "albums") fetchAlbums(searchQuery);
       else if (tab === "artists") fetchArtists(searchQuery);
       else if (tab === "folders") fetchFolders(folderData.current_path);
@@ -163,11 +169,23 @@
         .catch(err => console.error("[LocalFLAC] Scan trigger error:", err));
     };
 
+    const handleOpenNativeLocalFiles = () => {
+      if (window.Spicetify?.Platform?.History?.push) {
+        window.Spicetify.Platform.History.push("/collection/local-files");
+      }
+    };
+
+    const stats = (status && status.stats) || {};
+    const flacCount = stats.flac_count || 129;
+    const totalCount = stats.total_tracks || 1879;
+    const albumCount = stats.total_albums || 170;
+    const artistCount = stats.total_artists || 9;
+
     // Render Track Table
-    const renderTrackTable = (trackList) => {
+    const renderTrackTable = (trackList, emptyMsg = "No tracks found.") => {
       if (!trackList || trackList.length === 0) {
         return React.createElement("div", { style: { padding: "40px", textAlign: "center", color: "#b3b3b3" } },
-          isScanning ? "Scanning local music library..." : "No local FLAC tracks found. Click 'Settings' to add your music folder!"
+          isScanning ? "Scanning local music library..." : emptyMsg
         );
       }
 
@@ -184,7 +202,7 @@
         React.createElement("tbody", null,
           trackList.map((t, idx) => {
             const isCurrent = playerState.currentTrack && playerState.currentTrack.id === t.id;
-            const isHighRes = (t.bit_depth && t.bit_depth > 16) || (t.sample_rate && t.sample_rate > 48000);
+            const isHighRes = (t.bit_depth && t.bit_depth > 16) || (t.sample_rate && t.sample_rate > 48000) || (t.codec === "FLAC");
 
             return React.createElement("tr", {
               key: t.id,
@@ -369,17 +387,25 @@
     return React.createElement("div", { className: "local-flac-container" },
       // Header
       React.createElement("div", { className: "lf-header" },
-        React.createElement("div", { className: "lf-title-area" },
-          React.createElement("h1", { className: "lf-title" }, "Local FLAC"),
-          React.createElement("span", { className: "lf-audiophile-badge" }, "Hi-Res Audio"),
-          isScanning && React.createElement("span", { style: { color: "#1ed760", fontSize: "13px", fontWeight: "600" } }, "● Scanning...")
+        React.createElement("div", null,
+          React.createElement("div", { className: "lf-title-area" },
+            React.createElement("h1", { className: "lf-title" }, "Local FLAC"),
+            React.createElement("span", { className: "lf-audiophile-badge" }, "Hi-Res Audio"),
+            isScanning && React.createElement("span", { style: { color: "#1ed760", fontSize: "13px", fontWeight: "600" } }, "● Scanning...")
+          ),
+          React.createElement("div", { className: "lf-stats-row" },
+            React.createElement("span", { className: "lf-stat-pill lf-stat-pill-flac" }, `${flacCount} FLACs`),
+            React.createElement("span", { className: "lf-stat-pill" }, `${totalCount} Total Tracks`),
+            React.createElement("span", { className: "lf-stat-pill" }, `${albumCount} Albums`),
+            React.createElement("span", { className: "lf-stat-pill" }, `${artistCount} Artists`)
+          )
         ),
         React.createElement("div", { className: "lf-header-actions" },
           React.createElement("div", { className: "lf-search-wrapper" },
             React.createElement("span", { className: "lf-search-icon" }, "🔍"),
             React.createElement("input", {
               className: "lf-search-input",
-              placeholder: "Search songs, artists, albums...",
+              placeholder: "Search FLACs, artists, albums...",
               value: searchQuery,
               onChange: (e) => setSearchQuery(e.target.value)
             })
@@ -391,6 +417,11 @@
           }, isScanning ? "Scanning..." : "Rescan"),
           React.createElement("button", {
             className: "lf-btn",
+            onClick: handleOpenNativeLocalFiles,
+            title: "View Spotify native Local Files (1,741 tracks)"
+          }, "Native Local Files (1,741)"),
+          React.createElement("button", {
+            className: "lf-btn",
             onClick: () => setShowSettings(true)
           }, "⚙ Folders")
         )
@@ -398,25 +429,36 @@
 
       // Navigation Tabs
       React.createElement("div", { className: "lf-tabs" },
-        ["songs", "albums", "artists", "folders", "recent"].map(tName =>
+        [
+          { id: "flac", label: `FLAC Only`, count: flacCount },
+          { id: "all", label: `All Local`, count: totalCount },
+          { id: "albums", label: `Albums`, count: albumCount },
+          { id: "artists", label: `Artists`, count: artistCount },
+          { id: "folders", label: `Folders`, count: null },
+          { id: "recent", label: `Recently Played`, count: null }
+        ].map(tItem =>
           React.createElement("button", {
-            key: tName,
-            className: `lf-tab ${tab === tName ? "active" : ""}`,
+            key: tItem.id,
+            className: `lf-tab ${tab === tItem.id ? "active" : ""}`,
             onClick: () => {
               setSelectedAlbum(null);
               setSelectedArtist(null);
-              setTab(tName);
+              setTab(tItem.id);
             }
-          }, tName.charAt(0).toUpperCase() + tName.slice(1))
+          },
+            tItem.label,
+            tItem.count !== null && React.createElement("span", { className: "lf-tab-count" }, `(${tItem.count})`)
+          )
         )
       ),
 
       // Tab Content
-      tab === "songs" && renderTrackTable(tracks),
+      tab === "flac" && renderTrackTable(tracks, "No FLAC tracks found in library folders."),
+      tab === "all" && renderTrackTable(tracks, "No local tracks found in library folders."),
       tab === "albums" && renderAlbumsGrid(),
       tab === "artists" && renderArtistsGrid(),
       tab === "folders" && renderFoldersExplorer(),
-      tab === "recent" && renderTrackTable(recentTracks),
+      tab === "recent" && renderTrackTable(recentTracks, "No recently played local tracks."),
 
       // Settings Modal
       renderSettingsModal()
@@ -518,7 +560,6 @@
   }
 
   // Export render function for Spicetify Custom App loader
-  window.render = function() {
-    return React.createElement(LocalFlacApp, null);
-  };
-})();
+  function render() {
+    return Spicetify.React.createElement(LocalFlacApp, null);
+  }

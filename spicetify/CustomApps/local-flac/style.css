@@ -202,12 +202,33 @@
   min-width: 250px;
 }
 
-.lf-track-art-sm {
+.lf-track-art-sm,
+.lf-row-art img {
   width: 40px;
   height: 40px;
   border-radius: 4px;
   object-fit: cover;
   background-color: #282828;
+  display: block;
+}
+
+.lf-row-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background-color: #282828;
+}
+
+.lf-row-art-fallback {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b3b3b3;
+  font-size: 18px;
 }
 
 .lf-track-text {
@@ -428,204 +449,35 @@
   word-break: break-all;
 }
 
-/* ==========================================================================
-   Integrated Bottom Player Bar (Overlay over Spotify footer when playing local)
-   ========================================================================== */
-.local-flac-bottom-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 84px;
-  background-color: #181818;
-  border-top: 1px solid #282828;
+/* Header Stat Badges */
+.lf-stats-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  z-index: 99999;
-  box-sizing: border-box;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.local-flac-bottom-bar.hidden {
-  display: none !important;
-}
-
-.lfb-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 30%;
-  min-width: 200px;
-}
-
-.lfb-art-container {
-  width: 56px;
-  height: 56px;
-  border-radius: 6px;
-  overflow: hidden;
-  background-color: #282828;
-  flex-shrink: 0;
-}
-
-.lfb-art {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.lfb-art-fallback {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 13px;
   color: #b3b3b3;
-  font-size: 24px;
 }
 
-.lfb-info {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.lfb-title-row {
-  display: flex;
+.lf-stat-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  background-color: #242424;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: #e0e0e0;
 }
 
-.lfb-title {
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lfb-badge {
+.lf-stat-pill-flac {
   background: rgba(30, 215, 96, 0.15);
   color: #1ed760;
   border: 1px solid rgba(30, 215, 96, 0.3);
-  font-size: 10px;
-  font-weight: 800;
-  padding: 1px 5px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
 }
 
-.lfb-sub {
-  color: #b3b3b3;
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lfb-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 40%;
-  max-width: 720px;
-}
-
-.lfb-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 6px;
-}
-
-.lfb-btn {
-  background: transparent;
-  border: none;
-  color: #b3b3b3;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s, transform 0.1s;
-}
-
-.lfb-btn:hover {
-  color: #ffffff;
-  transform: scale(1.08);
-}
-
-.lfb-btn.active {
-  color: #1ed760 !important;
-}
-
-.lfb-btn-play {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background-color: #ffffff;
-  color: #000000;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s, background-color 0.15s;
-}
-
-.lfb-btn-play:hover {
-  background-color: #f0f0f0;
-  transform: scale(1.08);
-}
-
-.lfb-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-
-.lfb-time {
+.lf-tab-count {
   font-size: 11px;
-  color: #a7a7a7;
-  min-width: 36px;
-  text-align: center;
-}
-
-.lfb-bar {
-  flex-grow: 1;
-  height: 4px;
-  background-color: #4d4d4d;
-  border-radius: 2px;
-  cursor: pointer;
-  position: relative;
-  transition: height 0.1s;
-}
-
-.lfb-bar:hover {
-  height: 6px;
-}
-
-.lfb-bar-fill {
-  height: 100%;
-  background-color: #ffffff;
-  border-radius: 2px;
-  transition: background-color 0.15s;
-  pointer-events: none;
-}
-
-.lfb-bar:hover .lfb-bar-fill {
-  background-color: #1ed760;
-}
-
-.lfb-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  width: 30%;
-  min-width: 160px;
+  opacity: 0.8;
+  margin-left: 4px;
 }
