@@ -1073,6 +1073,39 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
           .catch(err => console.error("[LocalFLAC] Folder fetch error:", err));
       }}, []);
 
+      const navigateToFolder = useCallback((path, pushHistory = true) => {{
+        fetchFolder(path);
+        if (pushHistory && window.Spicetify?.Platform?.History) {{
+          const search = path ? `?folder=${{encodeURIComponent(path)}}` : "";
+          const curLoc = window.Spicetify.Platform.History.location;
+          if (curLoc?.pathname !== "/local-flac" || (curLoc?.search || "") !== search) {{
+            window.Spicetify.Platform.History.push({{ pathname: "/local-flac", search }});
+          }}
+        }}
+      }}, [fetchFolder]);
+
+      useEffect(() => {{
+        const handleLocationChange = (loc) => {{
+          if (!loc) loc = window.Spicetify?.Platform?.History?.location || {{}};
+          const pathname = loc.pathname || "";
+          if (pathname === "/local-flac" || pathname.startsWith("/local-flac/")) {{
+            const params = new URLSearchParams(loc.search || "");
+            const folderParam = params.get("folder");
+            if (folderParam !== null) {{
+              setTab("folders");
+              fetchFolder(folderParam || null);
+            }} else if (tab === "folders" && folderData.current_path !== null) {{
+              fetchFolder(null);
+            }}
+          }}
+        }};
+
+        const unlisten = window.Spicetify?.Platform?.History?.listen?.(handleLocationChange);
+        return () => {{
+          if (typeof unlisten === "function") unlisten();
+        }};
+      }}, [tab, folderData.current_path, fetchFolder]);
+
       useEffect(() => {{
         if (tab === "flac") {{
           fetchTracks(searchQuery, selectedArtist, selectedAlbum, true);
@@ -1085,7 +1118,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         }} else if (tab === "recent") {{
           fetchRecent();
         }} else if (tab === "folders") {{
-          fetchFolder();
+          fetchFolder(folderData.current_path);
         }}
       }}, [tab, searchQuery, selectedAlbum, selectedArtist, fetchTracks, fetchAlbums, fetchArtists, fetchRecent, fetchFolder]);
 
@@ -1193,6 +1226,122 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       const stats = status?.stats || {{}};
       const currentTrackId = playerState.currentTrack?.id;
 
+      const renderFolderBreadcrumbs = () => {{
+        const current = folderData.current_path;
+        const roots = status?.music_directories || folderData.music_directories || [];
+
+        const crumbs = [
+          {{ label: "📁 Library Roots", path: null, isLast: !current }}
+        ];
+
+        if (current) {{
+          let matchedRoot = roots.find(r => current === r || current.startsWith(r + "/"));
+          if (matchedRoot) {{
+            const rootName = matchedRoot.split("/").filter(Boolean).pop() || matchedRoot;
+            const isAtRoot = current === matchedRoot;
+            crumbs.push({{
+              label: rootName,
+              path: matchedRoot,
+              isLast: isAtRoot
+            }});
+            if (!isAtRoot) {{
+              const rel = current.slice(matchedRoot.length).replace(/^\\/+/, "");
+              const parts = rel.split("/").filter(Boolean);
+              let accum = matchedRoot;
+              parts.forEach((p, idx) => {{
+                accum += "/" + p;
+                crumbs.push({{
+                  label: p,
+                  path: accum,
+                  isLast: idx === parts.length - 1
+                }});
+              }});
+            }}
+          }} else {{
+            const parts = current.split("/").filter(Boolean);
+            let accum = "";
+            parts.forEach((p, idx) => {{
+              accum += "/" + p;
+              crumbs.push({{
+                label: p,
+                path: accum,
+                isLast: idx === parts.length - 1
+              }});
+            }});
+          }}
+        }}
+
+        return React.createElement("div", {{ className: "lf-folder-header" }},
+          React.createElement("div", {{ className: "lf-folder-crumbs" }},
+            crumbs.map((c, i) => React.createElement(React.Fragment, {{ key: i }},
+              i > 0 && React.createElement("span", {{ className: "lf-crumb-sep" }}, "›"),
+              React.createElement("span", {{
+                className: `lf-crumb-item ${{c.isLast ? "active" : ""}}`,
+                onClick: () => !c.isLast && navigateToFolder(c.path)
+              }}, c.label)
+            ))
+          ),
+          current && React.createElement("button", {{
+            className: "lf-btn lf-btn-secondary lf-folder-up-btn",
+            onClick: () => navigateToFolder(folderData.parent_path || null)
+          }}, "⬆ Up One Level")
+        );
+      }};
+
+      const renderFolderView = () => {{
+        const items = folderData.items || [];
+        const dirItems = items.filter(it => it.is_dir);
+        const trackItems = items.filter(it => !it.is_dir && it.track);
+        const folderTracks = trackItems.map(it => it.track);
+
+        return React.createElement("div", {{ className: "lf-folder-view" }},
+          renderFolderBreadcrumbs(),
+
+          items.length === 0 ? React.createElement("div", {{ className: "lf-folder-empty" }},
+            React.createElement("div", {{ className: "lf-folder-empty-icon" }}, "📁"),
+            React.createElement("div", {{ className: "lf-folder-empty-title" }}, "This folder is empty"),
+            React.createElement("div", {{ className: "lf-folder-empty-desc" }}, "No supported audio tracks or subfolders found in this directory."),
+            React.createElement("button", {{
+              className: "lf-btn lf-btn-primary",
+              style: {{ marginTop: "16px" }},
+              onClick: () => navigateToFolder(folderData.parent_path || null)
+            }}, "⬅ Return to Parent")
+          ) : React.createElement("div", {{ className: "lf-folder-list" }},
+            dirItems.map((it, idx) => React.createElement("div", {{
+              key: `dir-${{idx}}`,
+              className: "lf-folder-row lf-folder-row-dir",
+              onClick: () => navigateToFolder(it.path)
+            }},
+              React.createElement("span", {{ className: "lf-folder-icon" }}, "📁"),
+              React.createElement("div", {{ className: "lf-folder-info" }},
+                React.createElement("span", {{ className: "lf-folder-name" }}, it.name),
+                React.createElement("span", {{ className: "lf-folder-subtext" }}, "Directory")
+              ),
+              React.createElement("span", {{ className: "lf-folder-arrow" }}, "›")
+            )),
+
+            trackItems.map((it, idx) => {{
+              const t = it.track;
+              const isCurrent = playerState.currentTrack && playerState.currentTrack.id === t.id;
+              const isPlaying = isCurrent && playerState.isPlaying;
+              return React.createElement("div", {{
+                key: `track-${{t.id || idx}}`,
+                className: `lf-folder-row lf-folder-row-track ${{isCurrent ? "active" : ""}}`,
+                onClick: () => handlePlayTrack(t, folderTracks, idx)
+              }},
+                React.createElement("span", {{ className: "lf-folder-icon" }}, isPlaying ? "🔊" : "🎵"),
+                React.createElement("div", {{ className: "lf-folder-info" }},
+                  React.createElement("span", {{ className: "lf-folder-name" }}, t.title || it.name),
+                  React.createElement("span", {{ className: "lf-folder-subtext" }}, t.artist || "Unknown Artist")
+                ),
+                React.createElement("span", {{ className: "lf-badge-flac" }}, formatBadge(t)),
+                React.createElement("span", {{ className: "lf-folder-duration" }}, formatTime(t.duration))
+              );
+            }})
+          )
+        );
+      }};
+
       return React.createElement("div", {{ className: "local-flac-container" }},
         // Header
         React.createElement("div", {{ className: "lf-header" }},
@@ -1240,27 +1389,61 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         React.createElement("div", {{ className: "lf-tabs" }},
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "flac" ? "active" : ""}}`,
-            onClick: () => {{ setTab("flac"); setSelectedAlbum(null); setSelectedArtist(null); }}
+            onClick: () => {{
+              setTab("flac");
+              setSelectedAlbum(null);
+              setSelectedArtist(null);
+              if (window.Spicetify?.Platform?.History) {{
+                window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
+              }}
+            }}
           }}, `FLAC Only (${{stats.flac_count || 129}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "all" ? "active" : ""}}`,
-            onClick: () => {{ setTab("all"); setSelectedAlbum(null); setSelectedArtist(null); }}
+            onClick: () => {{
+              setTab("all");
+              setSelectedAlbum(null);
+              setSelectedArtist(null);
+              if (window.Spicetify?.Platform?.History) {{
+                window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
+              }}
+            }}
           }}, `All Local (${{stats.total_tracks || 1880}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "albums" ? "active" : ""}}`,
-            onClick: () => setTab("albums")
+            onClick: () => {{
+              setTab("albums");
+              if (window.Spicetify?.Platform?.History) {{
+                window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
+              }}
+            }}
           }}, `Albums (${{stats.total_albums || 170}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "artists" ? "active" : ""}}`,
-            onClick: () => setTab("artists")
+            onClick: () => {{
+              setTab("artists");
+              if (window.Spicetify?.Platform?.History) {{
+                window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
+              }}
+            }}
           }}, `Artists (${{stats.total_artists || 9}})`),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "folders" ? "active" : ""}}`,
-            onClick: () => setTab("folders")
+            onClick: () => {{
+              setTab("folders");
+              setSelectedAlbum(null);
+              setSelectedArtist(null);
+              navigateToFolder(null);
+            }}
           }}, "Folders"),
           React.createElement("button", {{
             className: `lf-tab-btn ${{tab === "recent" ? "active" : ""}}`,
-            onClick: () => setTab("recent")
+            onClick: () => {{
+              setTab("recent");
+              if (window.Spicetify?.Platform?.History) {{
+                window.Spicetify.Platform.History.push({{ pathname: "/local-flac" }});
+              }}
+            }}
           }}, "Recently Played")
         ),
 
@@ -1395,21 +1578,7 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
         ),
 
         // Folder View
-        tab === "folders" && React.createElement("div", {{ className: "lf-folder-view" }},
-          folderData.parent_path && React.createElement("div", {{
-            className: "lf-folder-item lf-folder-back",
-            onClick: () => fetchFolder(folderData.parent_path)
-          }}, "📁 .. (Up one level)"),
-          folderData.items?.map((item, idx) => React.createElement("div", {{
-            key: idx,
-            className: "lf-folder-item",
-            onClick: () => item.is_dir ? fetchFolder(item.path) : null
-          }},
-            React.createElement("span", {{ className: "lf-folder-icon" }}, item.is_dir ? "📁" : "🎵"),
-            React.createElement("span", {{ className: "lf-folder-name" }}, item.name),
-            !item.is_dir && React.createElement("span", {{ className: "lf-folder-meta" }}, `${{item.codec || ""}} · ${{formatTime(item.duration)}}`)
-          ))
-        ),
+        tab === "folders" && renderFolderView(),
 
         // Settings / Folders Modal
         showSettings && React.createElement("div", {{ className: "lf-modal-overlay", onClick: () => setShowSettings(false) }},
@@ -1454,8 +1623,10 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       main.parentElement.insertBefore(appRootElement, main.nextSibling);
     }}
 
-    if (!LocalFlacAppComponent && window.Spicetify?.React && window.Spicetify?.ReactDOM) {{
-      LocalFlacAppComponent = createLocalFlacComponent();
+    if ((!LocalFlacAppComponent || !appRootElement.firstElementChild) && window.Spicetify?.React && window.Spicetify?.ReactDOM) {{
+      if (!LocalFlacAppComponent) {{
+        LocalFlacAppComponent = createLocalFlacComponent();
+      }}
       window.Spicetify.ReactDOM.render(
         window.Spicetify.React.createElement(LocalFlacAppComponent, null),
         appRootElement
@@ -1482,12 +1653,8 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
       if (appRootElement) appRootElement.classList.add("hidden");
     }}
 
-    // Update active highlight on sidebar
-    const row = document.getElementById("sidebar-local-flac-row");
-    if (row) {{
-      if (isFlac) row.classList.add("active");
-      else row.classList.remove("active");
-    }}
+    // Ensure sidebar row is injected and has proper active state
+    injectSidebarRow(window.LocalFlacPlayer?.flacCount || 129);
 
     if (path === "/preferences" || path.startsWith("/preferences")) {{
       setTimeout(injectSettingsToggle, 200);
@@ -1630,7 +1797,8 @@ ext_code = f'''// Spotify Local FLAC - Complete Production Integration
           sidebarRow.style.display = checked ? "" : "none";
         }}
 
-        if (!checked && window.Spicetify?.Platform?.History?.location?.pathname === "/local-flac") {{
+        const curPath = window.Spicetify?.Platform?.History?.location?.pathname || window.location.pathname;
+        if (!checked && (curPath === "/local-flac" || curPath?.startsWith("/local-flac/"))) {{
           window.Spicetify.Platform.History.push("/");
         }}
 

@@ -2,19 +2,45 @@
 
 > Production-quality modification and companion service for the Spotify desktop client adding first-class browsing and native-fidelity playback for local FLAC and hi-res audio files.
 
+![Spotify Local FLAC](screenshots/local-flac.png)
+
+*Native-styled Local FLAC library with sortable Title, Artist, and Album columns, lossless playback, cover art, hierarchical folder explorer, and integrated bottom player.*
+
 ---
 
-## Overview
+## Features
 
-The Spotify desktop client natively restricts local file playback to lossy formats (`.mp3`, `.m4a`), completely ignoring FLAC and high-resolution lossless audio. 
+### 1. Library Browsing & Search
+- **Dedicated Route (`/local-flac`)**: Docked directly into Spotify's sidebar next to native "Local Files".
+- **Sortable Track Table**: Interactive ascending and descending sorting on **TITLE**, **ARTIST**, and **ALBUM** columns with locale-aware ordering (handling numbers, accents, and punctuation) and visible row numbering.
+- **Dedicated Artist Column**: Clean artist column matching Spotify's native layout: `#`, `TITLE`, `ARTIST`, `ALBUM`, `⏱`.
+- **Filter Chips**: Spotify-native styled pills for quick filtering:
+  - **FLAC Only (129)**
+  - **All Local (1,880)**
+  - **Albums (170)**
+  - **Artists (9)**
+  - **Folders**
+  - **Recently Played**
+- **Hierarchical Folder Explorer**: Breadcrumb navigation for directory trees with subfolder drill-down, empty-folder handling, and direct playback of entire folders.
+- **Album & Artist Grids**: Visual card grids with embedded cover art extraction and track counts.
+- **Instant Search**: Real-time filtering across titles, artists, albums, and folder paths.
 
-**Spotify Local FLAC** bridges this gap seamlessly:
-- Adds a native-styled **"Local FLAC"** section directly into Spotify's sidebar.
-- Provides comprehensive library browsing by **Songs**, **Albums**, **Artists**, **Folders**, and **Recently Played**.
-- Displays audiophile track specifications (codec, bit depth, sample rate, duration, embedded cover art).
-- Delivers native-fidelity FLAC streaming with instant seeking via HTTP 206 byte-range requests.
-- Integrates with system media keys and MPRIS on Linux (KDE Plasma / Wayland).
-- Manages playback with an integrated bottom player bar docked inside the Spotify interface.
+### 2. Lossless Playback & Native Spotify Integration
+- **Lossless FLAC Streaming**: Direct FLAC audio streaming via HTTP 206 byte-range requests with instant seeking.
+- **Integrated Bottom Player Bar**: Docked into Spotify's bottom bar with track title, artist, album art, audiophile format badge (e.g. `FLAC 16-BIT · 44.1 KHZ`, `FLAC 24-BIT · 96 KHZ`), seekbar, and volume slider.
+- **Single-Active-Owner State Machine**: Seamless coordination between Spotify native playback and Local FLAC. Starting Spotify streams automatically pauses Local FLAC; playing a FLAC pauses Spotify.
+- **Settings Toggle**: Integrated toggle in Spotify Preferences (`/preferences`) to show or hide "Show Local FLAC" and quick access to manage music directories.
+- **System Media Keys & MPRIS**: Keyboard media keys, lock screen controls, and KDE Plasma/Wayland notifications work natively via `navigator.mediaSession`.
+- **Keyboard Shortcuts**:
+  - `Space`: Play / Pause
+  - `Ctrl + ArrowRight`: Next track
+  - `Ctrl + ArrowLeft`: Previous track
+  - `Shift + ArrowRight`: Seek forward 5s
+  - `Shift + ArrowLeft`: Seek backward 5s
+
+### 3. Background Directory Watcher
+- Continuous directory monitoring via Linux `inotify`.
+- Newly added music files and folders are automatically indexed without requiring client restarts.
 
 ---
 
@@ -22,14 +48,14 @@ The Spotify desktop client natively restricts local file playback to lossy forma
 
 ```mermaid
 flowchart TD
-    subgraph Spotify Desktop Client [Spotify Client (CEF / Chromium)]
+    subgraph spotify["Spotify Desktop Client (CEF / Chromium)"]
         Sidebar["Sidebar: 'Local FLAC'"]
-        CustomApp["Custom App (React UI)"]
+        CustomApp["Custom UI (React Library Explorer)"]
         Extension["Global Player Extension"]
-        AudioPipeline["HTML5 Audio Pipeline (Native FLAC Decode)"]
+        AudioPipeline["HTML5 Audio Element (FLAC Decoder)"]
         BottomBar["Integrated Bottom Player Bar"]
-        MediaSession["navigator.mediaSession (MPRIS / Media Keys)"]
-        
+        MediaSession["MediaSession API (MPRIS / Media Keys)"]
+
         Sidebar --> CustomApp
         CustomApp --> Extension
         Extension --> AudioPipeline
@@ -37,12 +63,12 @@ flowchart TD
         Extension --> MediaSession
     end
 
-    subgraph Host Linux System [CachyOS / Arch Linux]
+    subgraph host["Host Linux System (CachyOS / Arch Linux)"]
         Daemon["spotify-local-flac-server (Systemd User Daemon)"]
         SQLite[("SQLite WAL Cache (library.db)")]
         Inotify["Linux inotify Directory Watcher"]
-        MusicStorage["User Audio Files (/mnt, ~/Music, etc.)"]
-        PipeWire["PipeWire / PulseAudio Audio Stack"]
+        MusicStorage["Local Audio Files (/mnt, ~/Music)"]
+        PipeWire["PipeWire / PulseAudio Audio Server"]
 
         Daemon <--> SQLite
         Inotify --> Daemon
@@ -55,88 +81,44 @@ flowchart TD
     AudioPipeline --> PipeWire
 ```
 
-### Why This Architecture?
-1. **Zero Spotify Binary Patching / DRM Untouched**: We do not decrypt, intercept, or modify Spotify's proprietary DRM streaming pipeline.
-2. **Native FLAC Decode**: Spotify's internal UI runs in Chromium (CEF). Chromium contains a native, hardware-accelerated FLAC decoder capable of bit-perfect 16-bit and 24-bit audio at high sample rates (44.1 kHz, 48 kHz, 96 kHz, 192 kHz).
-3. **High Concurrency & Low Memory**: The Python companion service uses SQLite in WAL mode and streams audio in 64 KB chunks without loading whole files into memory.
+---
+
+## How It Works
+
+1. **Zero Spotify DRM Modification**: Spotify's proprietary DRM streaming pipeline is left untouched. Local FLAC operates exclusively on your own offline audio files.
+2. **Lossless FLAC Playback Without Transcoding**: Spotify's desktop interface runs inside Chromium (CEF), which includes native FLAC decoding capabilities. The companion extension routes local audio through an HTML5 audio element fed by the local streaming server.
+3. **Local Companion Daemon**: A lightweight Python service runs as a systemd user daemon, indexing local audio files into SQLite (WAL mode) and serving HTTP 206 partial content streams with localhost-only token authentication.
 
 ---
 
-## Performance Benchmarks
-
-Measured directly on CachyOS x86_64:
-
-| Metric | Result | Notes |
-| :--- | :--- | :--- |
-| **Startup & DB Connection** | **63.95 ms** | Instant daemon readiness |
-| **Incremental Scan Speed** | **9,108 tracks / sec** | 1,880 tracks verified in 0.21s |
-| **Idle Memory (RSS)** | **38.1 MB** | Minimal footprint in background |
-| **Idle CPU Usage** | **0.00%** | Zero polling when quiet |
-| **Active 24-bit FLAC Stream CPU** | **0.97%** | Near-zero CPU overhead |
-| **Stream Throughput** | **12.13 MB/s** | Instantaneous seek response |
-
----
-
-## Features
-
-### 1. Library Browsing & Search
-- **Songs View**: Sortable track list with title, artist, album, format badge (e.g. `FLAC 24-bit · 48 kHz`), SVG play/pause action buttons on hover/play, and track duration.
-- **Filter Chips**: Spotify-native styled pills for quick filtering between FLAC Only (129), All Local (1,880), Albums (170), Artists (9), Folders, and Recently Played.
-- **Albums View**: Grid of album cards with extracted embedded artwork, album artist, release year, and track counts.
-- **Artists View**: Grid of artists with track and album counters; drill down into specific artists.
-- **Folders Explorer**: Hierarchical breadcrumb folder browser for browsing local directory structure directly on disk.
-- **Recently Played**: History of tracks played via the local player.
-- **Live Search**: Instant search filtering across titles, artists, albums, and folder paths.
-
-### 2. Playback & Integration
-- **Integrated Player Bar**: Sleek bottom bar matching Spotify's dark UI with track title, artist, album art, audiophile badge, interactive seek bar, volume scrubber, and playback controls.
-- **Bidirectional Ownership State Machine**: Strict single-active-owner coordination (`LOCAL_FLAC` vs `SPOTIFY_NATIVE`). When native Spotify plays, FLAC pauses immediately and native bar restores; when FLAC plays, native Spotify pauses and local bar takes over with zero simultaneous playback.
-- **Native Settings Integration**: Seamless toggle in Spotify Settings (`/preferences` under "Your Library") to show or hide "Show Local FLAC" and direct shortcut to "Manage Local FLAC folders", with state persisted across sessions in `localStorage`.
-- **Queue Management**: Current playlist queue with Next, Previous, Shuffle, and Repeat (off / all / one).
-- **System Media Keys & MPRIS**: Keyboard media keys and KDE Plasma system tray notifications work natively via `navigator.mediaSession`.
-- **Keyboard Shortcuts**:
-  - `Space`: Play / Pause (when not focused on a text input)
-  - `Ctrl + ArrowRight`: Next track
-  - `Ctrl + ArrowLeft`: Previous track
-  - `Shift + ArrowRight`: Seek forward 5s
-  - `Shift + ArrowLeft`: Seek backward 5s
-
-### 3. Background Directory Watcher
-- Watches library folders using Linux `inotify`.
-- New music files added to your folders are automatically indexed without manual rescan.
-
----
-
-## Installation (CachyOS / Arch Linux)
+## Installation
 
 ### Prerequisites
-- Spotify installed either via **Flatpak** (`com.spotify.Client`) or native package.
-- CachyOS / Arch Linux with Python 3.
-- `git` and passwordless `sudo` or standard sudo rights.
+- Spotify installed either via **Flatpak** (`com.spotify.Client`) or native Arch/CachyOS package.
+- Python 3.10+ with `sqlite3`.
+- `spicetify-cli`.
 
-### 1. Clone & Install
+### Clone & Install
 ```bash
 cd ~/Projects
-git clone https://github.com/USERNAME/spotify-local-flac.git
+git clone https://github.com/Wandersport/spotify-local-flac.git
 cd spotify-local-flac
 ./install.sh
 ```
 
-The installer will automatically:
-1. Detect your OS and Spotify installation (Flatpak or Native).
-2. Configure required Flatpak write permissions and preferences.
-3. Install and configure `spicetify-cli`.
-4. Install the companion daemon to `~/.local/share/spotify-local-flac/`.
-5. Auto-detect your music directories (including `~/Music` and mounted drives).
-6. Install and enable the `spotify-local-flac.service` systemd user service.
-7. Apply the Spicetify Custom App and Extension to Spotify.
+The installer will:
+1. Detect your Spotify client and configure Spicetify.
+2. Install the companion daemon to `~/.local/share/spotify-local-flac/`.
+3. Auto-detect your music directories (including `~/Music` and mounted drives).
+4. Create and enable the `spotify-local-flac.service` systemd user service.
+5. Apply the Spicetify Custom App and Extension to Spotify.
 
 ---
 
 ## Configuration
 
-The configuration file is stored at:
-```
+Configuration is stored in:
+```text
 ~/.config/spotify-local-flac/config.json
 ```
 
@@ -150,7 +132,6 @@ Example configuration:
     "/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]"
   ],
   "exclude_patterns": [
-    ".*",
     "*recycle*",
     "*trash*",
     "*lost+found*"
@@ -171,20 +152,28 @@ Example configuration:
 }
 ```
 
-### Adding Music Folders
-You can add music folders in two ways:
-1. **Inside Spotify UI**: Click **"Local FLAC"** in the sidebar → click **"⚙ Folders"** in the top right → enter the directory path → click **"Add Folder"**.
-2. **Via Config File**: Add the directory path to `"music_directories"` in `~/.config/spotify-local-flac/config.json` and run:
-   ```bash
-   systemctl --user restart spotify-local-flac.service
-   ```
+> [!NOTE]
+> Hidden system/version control directories (e.g. `.git/`, `.cache/`, `.DS_Store`) are excluded automatically. Legitimate audio files whose filenames begin with a dot (such as `.223...mp3`) are fully supported and indexed.
+
+### Adding Music Directories
+- **Via Spotify UI**: Open **Local FLAC** → click **⚙ Folders** → enter path → **Add Folder**.
+- **Via Config File**: Add the directory to `"music_directories"` in `config.json` and restart the service.
+
+---
+
+## Updating
+
+When Spotify is updated via Flatpak or package manager:
+```bash
+cd ~/Projects/spotify-local-flac
+./update.sh
+```
 
 ---
 
 ## Service Management
 
-The companion service runs as a systemd user daemon:
-
+The companion service runs as a systemd user unit:
 ```bash
 # Check service status
 systemctl --user status spotify-local-flac.service
@@ -201,26 +190,33 @@ systemctl --user stop spotify-local-flac.service
 
 ---
 
-## Updating After Spotify Updates
+## Technical Notes / Native Spotify Limitations
 
-When Spotify is updated via Flatpak or Pacman, Spicetify patches may need to be reapplied:
+Spotify's native desktop client hardcodes support strictly for `.mp3`, `.m4a`, and `.mp4` files via its internal `libplayback` scanner:
 
-```bash
-cd ~/Projects/spotify-local-flac
-./update.sh
-```
+| Storage Inventory | Track Count | Formats Included |
+| :--- | :--- | :--- |
+| **Files on Disk** | **1,880** | 129 FLAC, 1,604 MP3, 137 M4A (136 AAC, 1 ALAC), 10 WAV |
+| **Spotify Native "Local Files"** | **1,741** | 1,604 MP3, 137 M4A *(FLAC & WAV excluded)* |
+| **Local FLAC Integration** | **1,880** | 129 FLAC, 1,604 MP3, 137 M4A, 10 WAV *(100% indexed)* |
+
+Because native Spotify lacks a FLAC demuxer in its closed-source playback pipeline:
+- Native Spotify drops FLAC files during local scanning and rejects synthetic `spotify:local:...` FLAC URIs with `command_not_allowed`.
+- FLAC tracks cannot be placed into native Spotify server-synced cloud playlists.
+- Local FLAC bridges this limitation by providing full, lossless playback in the client with dedicated library browsing, folder navigation, and synchronized queue management.
+
+For complete forensic analysis and disassembly notes, refer to [AUDIT.md](AUDIT.md).
 
 ---
 
 ## Uninstallation
 
-To cleanly remove the integration, restore Spotify to its original state, and remove the systemd user service:
-
+To restore Spotify to its original unmodified state and remove the background service:
 ```bash
 cd ~/Projects/spotify-local-flac
 ./uninstall.sh
 
-# Or to also delete the database and configuration:
+# Or to also purge configuration and database:
 ./uninstall.sh --purge
 ```
 
@@ -228,57 +224,10 @@ cd ~/Projects/spotify-local-flac
 
 ## Security & Privacy
 
-- **Localhost Binding**: The companion daemon binds strictly to `127.0.0.1` and never opens listening sockets to LAN or WAN.
-- **Path Traversal Sanitization**: All requested paths are resolved with `os.path.realpath` and strictly verified against configured music directories. Directory traversal attempts (`../`) are rejected with `403 Forbidden`.
-- **Local Bearer Authentication**: An automatically generated 256-bit token is saved in `~/.config/spotify-local-flac/token` (mode 0600) and required for all API and stream requests.
-- **Zero Telemetry**: No tracking, metrics, or personal information leaves your computer.
-
----
-
----
-
-## Technical Deep-Dive: Spotify Native Scanner vs. Local FLAC Engine
-
-### Track Inventory & Audit: 1,880 Files On Disk
-During deep reverse-engineering of the Spotify desktop binary (`/var/lib/flatpak/app/com.spotify.Client/x86_64/stable/active/files/extra/share/spotify/spotify`) and bit-level database cross-referencing:
-- **Total Audio Files on Disk (1,880 files)**: 1,604 `.mp3`, 137 `.m4a` (136 AAC, 1 ALAC), 129 `.flac`, and 10 `.wav`.
-- **Spotify Native Local Files (1,741 tracks)**: Spotify's internal scanner (`LocalFilesScanner` in the closed-source C++ `libplayback` layer) hardcodes support strictly for `.mp3`, `.m4a`, and `.mp4`. It silently discards `.flac` and `.wav` files. When synthetic `spotify:local:...` FLAC track URIs are injected into Spotify's native player, the core engine responds with `command_not_allowed`.
-- **Spotify Local FLAC Extension (1,880 Total Tracks / 129 FLACs)**: Our companion daemon indexes 100% of supported audio files on disk (129 FLAC, 1,604 MP3, 137 M4A, 10 WAV), including valid audio files starting with `.` (such as `.223...mp3`).
-- **The 139-Track Difference (1,880 in companion vs. 1,741 in native)**: Exactly accounted for by the lossless/uncompressed audio formats that Spotify's native engine excludes (**129 FLAC tracks** + **10 WAV tracks**). Full details are documented in [AUDIT.md](AUDIT.md).
-
-```
-Total Audio Files on Disk: 1,880
-  ├── Companion Index: 1,880 tracks (129 FLAC, 1,604 MP3, 137 M4A, 10 WAV)
-  └── Spotify Native:  1,741 tracks (1,604 MP3, 137 M4A)
-```
-
----
-
-## Visual Verification & Screenshots
-
-All UI states were verified end-to-end using automated Chrome DevTools Protocol (CDP) testing directly on the live running Flatpak Spotify client:
-
-### 1. Clean Startup (Spotify Home)
-![Home No Playback](screenshots/01_home_no_local_playback.png)
-*Initial launch on Spotify Home route (`/`). The FLAC player bar is completely hidden (`display: none !important`), `#main` has `offsetTop = 0`, and no unstyled elements appear.*
-
-### 2. Dedicated Local FLAC Route (`/local-flac`)
-![Local FLAC Page Playing](screenshots/02_local_flac_page_playing.png)
-*The custom React view mounted adjacent to `<main>`, showcasing library stat pills (`129 FLACs`, `1,879 Total`), filter tabs (`FLAC (129)`, `All Tracks (1,879)`, `Albums (164)`, `Artists (140)`, `Folders (18)`), embedded cover art, and audiophile format badges (`FLAC 16-BIT · 44.1 KHZ`).*
-
-### 3. Persistent Playback Across Spotify Navigation
-![Home with FLAC Playing](screenshots/03_home_flac_playing.png)
-*Navigating back to Spotify Home while local FLAC audio is playing. The bottom player bar is docked inside `aside[data-testid="now-playing-bar"]`, seamlessly replacing native player controls without layout shifting or React component destruction.*
-
-### 4. Native Local Files Coexistence
-![Native Local Files](screenshots/04_native_local_files.png)
-*Spotify's native "Local Files" page showing its 1,741 MP3/M4A tracks, with the new "Local FLAC · 129" sidebar item docked in the navigation hierarchy.*
-
----
-
-## Limitations
-
-- **Spotify Native Playlists**: Spotify's internal C++ player pipeline lacks a FLAC demuxer, preventing FLAC tracks from being added to native Spotify server-synced cloud playlists. However, playback inside the desktop client is bit-perfect, hardware-accelerated, and completely integrated into Spotify's UI and Linux MPRIS/system media keys.
+- **Localhost Binding**: The companion daemon binds strictly to `127.0.0.1` and never opens external network ports.
+- **Path Traversal Sanitization**: All file requests are canonicalized with `os.path.realpath` and checked against allowed directories. Traversal attempts outside configured music directories are rejected with `403 Forbidden`.
+- **Bearer Authentication**: An automatically generated 256-bit token (`~/.config/spotify-local-flac/token`, permission `0600`) authenticates all API and streaming requests.
+- **Zero Telemetry**: No analytics, telemetry, or personal data leaves your local machine.
 
 ---
 

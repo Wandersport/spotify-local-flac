@@ -143,6 +143,39 @@ const { useState, useEffect, useCallback, useMemo } = React;
         .catch(err => console.error("[LocalFLAC] Folders fetch error:", err));
     }, []);
 
+    const navigateToFolder = useCallback((path, pushHistory = true) => {
+      fetchFolders(path);
+      if (pushHistory && window.Spicetify?.Platform?.History) {
+        const search = path ? `?folder=${encodeURIComponent(path)}` : "";
+        const curLoc = window.Spicetify.Platform.History.location;
+        if (curLoc?.pathname !== "/local-flac" || (curLoc?.search || "") !== search) {
+          window.Spicetify.Platform.History.push({ pathname: "/local-flac", search });
+        }
+      }
+    }, [fetchFolders]);
+
+    useEffect(() => {
+      const handleLocationChange = (loc) => {
+        if (!loc) loc = window.Spicetify?.Platform?.History?.location || {};
+        const pathname = loc.pathname || "";
+        if (pathname === "/local-flac" || pathname.startsWith("/local-flac/")) {
+          const params = new URLSearchParams(loc.search || "");
+          const folderParam = params.get("folder");
+          if (folderParam !== null) {
+            setTab("folders");
+            fetchFolders(folderParam || null);
+          } else if (tab === "folders" && folderData.current_path !== null) {
+            fetchFolders(null);
+          }
+        }
+      };
+
+      const unlisten = window.Spicetify?.Platform?.History?.listen?.(handleLocationChange);
+      return () => {
+        if (typeof unlisten === "function") unlisten();
+      };
+    }, [tab, folderData.current_path, fetchFolders]);
+
     // Reload active tab data
     useEffect(() => {
       if (tab === "flac") fetchTracks(searchQuery, selectedArtist, selectedAlbum, true);
@@ -439,47 +472,112 @@ const { useState, useEffect, useCallback, useMemo } = React;
 
     // Render Folders Explorer
     const renderFoldersExplorer = () => {
+      const current = folderData.current_path;
+      const roots = status?.music_directories || folderData.music_directories || [];
+
+      const crumbs = [
+        { label: "📁 Library Roots", path: null, isLast: !current }
+      ];
+
+      if (current) {
+        let matchedRoot = roots.find(r => current === r || current.startsWith(r + "/"));
+        if (matchedRoot) {
+          const rootName = matchedRoot.split("/").filter(Boolean).pop() || matchedRoot;
+          const isAtRoot = current === matchedRoot;
+          crumbs.push({
+            label: rootName,
+            path: matchedRoot,
+            isLast: isAtRoot
+          });
+          if (!isAtRoot) {
+            const rel = current.slice(matchedRoot.length).replace(/^\/+/, "");
+            const parts = rel.split("/").filter(Boolean);
+            let accum = matchedRoot;
+            parts.forEach((p, idx) => {
+              accum += "/" + p;
+              crumbs.push({
+                label: p,
+                path: accum,
+                isLast: idx === parts.length - 1
+              });
+            });
+          }
+        } else {
+          const parts = current.split("/").filter(Boolean);
+          let accum = "";
+          parts.forEach((p, idx) => {
+            accum += "/" + p;
+            crumbs.push({
+              label: p,
+              path: accum,
+              isLast: idx === parts.length - 1
+            });
+          });
+        }
+      }
+
       const items = folderData.items || [];
-      return React.createElement("div", null,
-        React.createElement("div", { className: "lf-folder-crumbs" },
-          React.createElement("span", {
-            className: "lf-crumb-item",
-            onClick: () => fetchFolders(null)
-          }, "Library Roots"),
-          folderData.parent_path && React.createElement("span", null, " / "),
-          folderData.parent_path && React.createElement("span", {
-            className: "lf-crumb-item",
-            onClick: () => fetchFolders(folderData.parent_path)
-          }, "Up One Level"),
-          folderData.current_path && React.createElement("span", null, ` : ${folderData.current_path}`)
+      const dirItems = items.filter(it => it.is_dir);
+      const trackItems = items.filter(it => !it.is_dir && it.track);
+      const folderTracks = trackItems.map(it => it.track);
+
+      return React.createElement("div", { className: "lf-folder-view" },
+        React.createElement("div", { className: "lf-folder-header" },
+          React.createElement("div", { className: "lf-folder-crumbs" },
+            crumbs.map((c, i) => React.createElement(React.Fragment, { key: i },
+              i > 0 && React.createElement("span", { className: "lf-crumb-sep" }, "›"),
+              React.createElement("span", {
+                className: `lf-crumb-item ${c.isLast ? "active" : ""}`,
+                onClick: () => !c.isLast && navigateToFolder(c.path)
+              }, c.label)
+            ))
+          ),
+          current && React.createElement("button", {
+            className: "lf-btn lf-btn-secondary lf-folder-up-btn",
+            onClick: () => navigateToFolder(folderData.parent_path || null)
+          }, "⬆ Up One Level")
         ),
-        React.createElement("div", { className: "lf-folder-list" },
-          items.map((it, idx) => {
-            if (it.is_dir) {
-              return React.createElement("div", {
-                key: idx,
-                className: "lf-folder-row",
-                onClick: () => fetchFolders(it.path)
-              },
-                React.createElement("span", { style: { fontSize: "20px" } }, "📁"),
-                React.createElement("span", { style: { fontWeight: "600" } }, it.name)
-              );
-            } else if (it.track) {
-              const t = it.track;
-              const isCurrent = playerState.currentTrack && playerState.currentTrack.id === t.id;
-              return React.createElement("div", {
-                key: idx,
-                className: "lf-folder-row",
-                style: { color: isCurrent ? "#1ed760" : "#fff" },
-                onClick: () => handlePlayTrack(t, [t], 0)
-              },
-                React.createElement("span", { style: { fontSize: "18px" } }, "🎵"),
-                React.createElement("span", { style: { flexGrow: 1, fontWeight: "500" } }, t.title || it.name),
-                React.createElement("span", { className: "lf-badge-flac" }, formatBadge(t)),
-                React.createElement("span", { style: { color: "#b3b3b3", fontSize: "13px" } }, formatTime(t.duration))
-              );
-            }
-            return null;
+
+        items.length === 0 ? React.createElement("div", { className: "lf-folder-empty" },
+          React.createElement("div", { className: "lf-folder-empty-icon" }, "📁"),
+          React.createElement("div", { className: "lf-folder-empty-title" }, "This folder is empty"),
+          React.createElement("div", { className: "lf-folder-empty-desc" }, "No supported audio tracks or subfolders found in this directory."),
+          React.createElement("button", {
+            className: "lf-btn lf-btn-primary",
+            style: { marginTop: "16px" },
+            onClick: () => navigateToFolder(folderData.parent_path || null)
+          }, "⬅ Return to Parent")
+        ) : React.createElement("div", { className: "lf-folder-list" },
+          dirItems.map((it, idx) => React.createElement("div", {
+            key: `dir-${idx}`,
+            className: "lf-folder-row lf-folder-row-dir",
+            onClick: () => navigateToFolder(it.path)
+          },
+            React.createElement("span", { className: "lf-folder-icon" }, "📁"),
+            React.createElement("div", { className: "lf-folder-info" },
+              React.createElement("span", { className: "lf-folder-name" }, it.name),
+              React.createElement("span", { className: "lf-folder-subtext" }, "Directory")
+            ),
+            React.createElement("span", { className: "lf-folder-arrow" }, "›")
+          )),
+
+          trackItems.map((it, idx) => {
+            const t = it.track;
+            const isCurrent = playerState.currentTrack && playerState.currentTrack.id === t.id;
+            const isPlaying = isCurrent && playerState.isPlaying;
+            return React.createElement("div", {
+              key: `track-${t.id || idx}`,
+              className: `lf-folder-row lf-folder-row-track ${isCurrent ? "active" : ""}`,
+              onClick: () => handlePlayTrack(t, folderTracks, idx)
+            },
+              React.createElement("span", { className: "lf-folder-icon" }, isPlaying ? "🔊" : "🎵"),
+              React.createElement("div", { className: "lf-folder-info" },
+                React.createElement("span", { className: "lf-folder-name" }, t.title || it.name),
+                React.createElement("span", { className: "lf-folder-subtext" }, t.artist || "Unknown Artist")
+              ),
+              React.createElement("span", { className: "lf-badge-flac" }, formatBadge(t)),
+              React.createElement("span", { className: "lf-folder-duration" }, formatTime(t.duration))
+            );
           })
         )
       );
@@ -556,6 +654,11 @@ const { useState, useEffect, useCallback, useMemo } = React;
               setSelectedAlbum(null);
               setSelectedArtist(null);
               setTab(tItem.id);
+              if (tItem.id === "folders") {
+                navigateToFolder(null);
+              } else if (window.Spicetify?.Platform?.History) {
+                window.Spicetify.Platform.History.push({ pathname: "/local-flac" });
+              }
             }
           },
             tItem.label,

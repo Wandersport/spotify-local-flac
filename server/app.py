@@ -282,7 +282,7 @@ class APIHandler(BaseHTTPRequestHandler):
                         "path": d,
                         "is_dir": True
                     })
-            self._send_json({"current_path": None, "items": roots})
+            self._send_json({"current_path": None, "items": roots, "music_directories": music_dirs})
             return
 
         abs_path = os.path.realpath(os.path.abspath(os.path.expanduser(requested_path)))
@@ -297,16 +297,16 @@ class APIHandler(BaseHTTPRequestHandler):
         items = []
         try:
             for entry in sorted(os.scandir(abs_path), key=lambda e: (not e.is_dir(), e.name.lower())):
-                if entry.name.startswith("."):
-                    continue
+                ext = os.path.splitext(entry.name)[1].lower()
                 if entry.is_dir():
+                    if entry.name.startswith(".") or entry.name.lower() in ("lost+found", "$recycle.bin", ".trash-1000"):
+                        continue
                     items.append({
                         "name": entry.name,
                         "path": entry.path,
                         "is_dir": True
                     })
                 elif entry.is_file():
-                    ext = os.path.splitext(entry.name)[1].lower()
                     if ext in self.config.supported_extensions:
                         track = self.db.get_track_by_path(entry.path)
                         items.append({
@@ -325,6 +325,7 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({
             "current_path": abs_path,
             "parent_path": parent if has_parent else None,
+            "music_directories": music_dirs,
             "items": items
         })
 
