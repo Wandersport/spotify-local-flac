@@ -1,4 +1,6 @@
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 async function main() {
   console.log("==========================================================");
@@ -12,7 +14,9 @@ async function main() {
   const wsUrl = pageTab.webSocketDebuggerUrl;
   console.log(`Connecting to CDP WebSocket at ${wsUrl}...`);
 
-  const token = fs.readFileSync('/home/admin/.config/spotify-local-flac/token', 'utf8').trim();
+  const tokenFile = path.join(os.homedir(), '.config', 'spotify-local-flac', 'token');
+  const token = fs.readFileSync(tokenFile, 'utf8').trim();
+  const screenshotsDir = path.join(__dirname, '..', 'screenshots');
 
   const ws = new WebSocket(wsUrl);
   await new Promise(r => ws.onopen = r);
@@ -48,9 +52,10 @@ async function main() {
 
   async function screenshot(filename) {
     const res = await send("Page.captureScreenshot", { format: "png" });
+    const fullPath = path.isAbsolute(filename) ? filename : path.join(screenshotsDir, filename);
     const buffer = Buffer.from(res.result.data, 'base64');
-    fs.writeFileSync(filename, buffer);
-    console.log(`📸 Saved screenshot: ${filename} (${buffer.length} bytes)`);
+    fs.writeFileSync(fullPath, buffer);
+    console.log(`📸 Saved screenshot: ${fullPath} (${buffer.length} bytes)`);
     return buffer.length;
   }
 
@@ -67,6 +72,15 @@ async function main() {
 
   // Ensure Spotify is ready
   await evaluate(`(() => {
+    if (window.LocalFlacPlayer?.isPlaying) {
+      window.LocalFlacPlayer.pause();
+    }
+    if (window.LocalFlacPlayer) {
+      window.LocalFlacPlayer.playbackOwner = "NONE";
+    }
+    document.body.classList.remove("local-flac-playing");
+    const bar = document.getElementById("local-flac-bottom-bar");
+    if (bar) bar.classList.add("hidden");
     localStorage.setItem("local_flac_enabled", "true");
   })()`);
 
@@ -288,7 +302,7 @@ async function main() {
   })()`);
   await sleep(500);
 
-  const s7Bytes = await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/05_settings_local_flac.png");
+  const s7Bytes = await screenshot("05_settings_local_flac.png");
   if (s7Bytes < 10000) throw new Error("TEST 7 FAILED: Screenshot 05 is too small");
   console.log("✔ TEST 7 PASSED: Settings screenshot captured.\n");
 
@@ -309,7 +323,7 @@ async function main() {
   })()`);
   console.log("Local FLAC Page Elements:", JSON.stringify(s8Check, null, 2));
 
-  const s8Bytes = await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/06_local_flac_polished.png");
+  const s8Bytes = await screenshot("06_local_flac_polished.png");
   if (s8Bytes < 10000) throw new Error("TEST 8 FAILED: Screenshot 06 is too small");
   console.log("✔ TEST 8 PASSED: Local FLAC polished screenshot captured.\n");
 

@@ -1,9 +1,12 @@
 const fs = require('fs');
+const path = require('path');
 
 async function main() {
   console.log("==========================================================");
   console.log("  Live Spotify Table & Sorting Validation Suite");
   console.log("==========================================================\n");
+
+  const screenshotsDir = path.join(__dirname, '..', 'screenshots');
 
   const tabsRes = await fetch("http://127.0.0.1:9222/json");
   const tabs = await tabsRes.json();
@@ -45,9 +48,10 @@ async function main() {
 
   async function screenshot(filename) {
     const res = await send("Page.captureScreenshot", { format: "png" });
+    const fullPath = path.isAbsolute(filename) ? filename : path.join(screenshotsDir, filename);
     const buffer = Buffer.from(res.result.data, 'base64');
-    fs.writeFileSync(filename, buffer);
-    console.log(`📸 Saved screenshot: ${filename} (${buffer.length} bytes)`);
+    fs.writeFileSync(fullPath, buffer);
+    console.log(`📸 Saved screenshot: ${fullPath} (${buffer.length} bytes)`);
     return buffer.length;
   }
 
@@ -57,7 +61,11 @@ async function main() {
   // Step A & B: Open /local-flac and verify exact table headers
   // ========================================================
   console.log("--- STEP A & B: Navigating to /local-flac & Verifying Headers ---");
-  await evaluate(`window.Spicetify.Platform.History.push("/local-flac")`);
+  await evaluate(`(() => {
+    window.Spicetify.Platform.History.push("/local-flac");
+    const flacBtn = Array.from(document.querySelectorAll(".lf-tab-btn")).find(b => b.innerText.includes("FLAC Only"));
+    if (flacBtn) flacBtn.click();
+  })()`);
   await sleep(1500);
 
   const headerCheck = await evaluate(`(() => {
@@ -93,7 +101,7 @@ async function main() {
   // Click TITLE header to sort A -> Z
   await evaluate(`(() => {
     const th = Array.from(document.querySelectorAll(".lf-track-table th")).find(t => t.innerText.includes("TITLE"));
-    if (th) th.click();
+    if (th && th.getAttribute("aria-sort") !== "ascending") th.click();
   })()`);
   await sleep(600);
 
@@ -224,11 +232,18 @@ async function main() {
   })()`);
   await sleep(400);
 
-  // Click first track's play button
+  // Play first track via dblclick
   await evaluate(`(() => {
     const row = document.querySelector(".lf-track-table tbody tr");
-    const playBtn = row?.querySelector(".lf-row-play-btn");
-    if (playBtn) playBtn.click();
+    if (row) {
+      row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    }
+  })()`);
+  await sleep(1500);
+  await evaluate(`(() => {
+    if (!window.LocalFlacPlayer?.isPlaying) {
+      window.LocalFlacPlayer?.resume();
+    }
   })()`);
   await sleep(1000);
 
@@ -427,7 +442,7 @@ async function main() {
   })()`);
   await sleep(600);
 
-  const screenshotBytes = await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/07_sortable_columns.png");
+  const screenshotBytes = await screenshot("07_sortable_columns.png");
   if (screenshotBytes < 10000) throw new Error("Screenshot is too small!");
 
   ws.close();

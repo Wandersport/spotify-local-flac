@@ -105,43 +105,60 @@ async function main() {
     throw new Error("Breadcrumbs did not update to [NEW MUSIC FOLDERS]!");
   }
 
-  // --- 4. Enter nested folder 1: [Gunna] ---
-  console.log("\n--- 4. Entering Nested Folder [Gunna] ---");
-  await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll(".lf-folder-row")).find(x => x.textContent.includes("Gunna"));
-    if (row) row.click();
+  // --- 4. Enter nested folder 1 ---
+  console.log("\n--- 4. Entering Nested Folder 1 ---");
+  const folder1 = await evaluate(`(() => {
+    const row = document.querySelector(".lf-folder-row-dir");
+    if (row) {
+      const name = row.querySelector(".lf-folder-name")?.innerText || "";
+      row.click();
+      return name;
+    }
+    return null;
   })()`);
   await sleep(600);
-  await assertState("Nested folder [Gunna]");
+  await assertState(`Nested folder ${folder1}`);
 
   const crumbs2 = await evaluate(`Array.from(document.querySelectorAll(".lf-crumb-item")).map(x => x.textContent)`);
   console.log("  Breadcrumbs:", crumbs2);
 
-  // --- 5. Enter nested folder 2: ⭐ Best ---
-  console.log("\n--- 5. Entering Nested Folder ⭐ Best ---");
-  await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll(".lf-folder-row")).find(x => x.textContent.includes("Best"));
-    if (row) row.click();
+  // --- 5. Enter nested folder 2 ---
+  console.log("\n--- 5. Entering Nested Folder 2 ---");
+  const folder2 = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll(".lf-folder-row-dir"));
+    const row = rows.find(r => !r.textContent.toLowerCase().includes("cover")) || rows[0];
+    if (row) {
+      const name = row.querySelector(".lf-folder-name")?.innerText || "";
+      row.click();
+      return name;
+    }
+    return null;
   })()`);
   await sleep(600);
-  await assertState("Nested folder ⭐ Best");
+  await assertState(`Nested folder ${folder2}`);
 
   const crumbs3 = await evaluate(`Array.from(document.querySelectorAll(".lf-crumb-item")).map(x => x.textContent)`);
   console.log("  Breadcrumbs:", crumbs3);
 
-  // --- 6. Enter nested album folder: 10 - Drip or Drown 2 ---
-  console.log("\n--- 6. Entering Album Folder 10 - Drip or Drown 2 ---");
-  await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll(".lf-folder-row")).find(x => x.textContent.includes("Drip or Drown 2"));
-    if (row) row.click();
+  // --- 6. Enter nested album folder with tracks ---
+  console.log("\n--- 6. Entering Nested Album Folder ---");
+  const folder3 = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll(".lf-folder-row-dir"));
+    const row = rows.find(r => !r.textContent.toLowerCase().includes("cover")) || rows[0];
+    if (row) {
+      const name = row.querySelector(".lf-folder-name")?.innerText || "";
+      row.click();
+      return name;
+    }
+    return null;
   })()`);
   await sleep(600);
-  await assertState("Album folder 10 - Drip or Drown 2");
+  await assertState(`Album folder ${folder3}`);
 
   const trackRowsCount = await evaluate(`document.querySelectorAll(".lf-folder-row-track").length`);
   console.log(`  Tracks in folder: ${trackRowsCount}`);
   if (trackRowsCount === 0) {
-    throw new Error("No tracks displayed in 10 - Drip or Drown 2!");
+    throw new Error(`No tracks displayed in ${folder3}!`);
   }
 
   // --- 7. Go back one level ---
@@ -217,21 +234,21 @@ async function main() {
   console.log(`    - Audio still playing: ${stillPlaying}`);
   if (!stillPlaying) throw new Error("Playback was interrupted when opening folder!");
 
-  // Drill into [Gunna] -> ⭐ Best -> 10 - Drip or Drown 2
+  // Drill into nested subfolders while playing
   console.log("\n  Drilling into nested subfolders while playing...");
   await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll(".lf-folder-row")).find(x => x.textContent.includes("Gunna"));
+    const row = document.querySelector(".lf-folder-row-dir");
     if (row) row.click();
   })()`);
   await sleep(600);
-  await assertState("[Gunna] during playback");
+  await assertState("Subfolder level 1 during playback");
 
   await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll(".lf-folder-row")).find(x => x.textContent.includes("Best"));
+    const row = document.querySelector(".lf-folder-row-dir");
     if (row) row.click();
   })()`);
   await sleep(600);
-  await assertState("⭐ Best during playback");
+  await assertState("Subfolder level 2 during playback");
 
   stillPlaying = await evaluate(`window.LocalFlacPlayer?.isPlaying && window.LocalFlacPlayer?.playbackOwner === "LOCAL_FLAC"`);
   console.log(`    - Audio still playing: ${stillPlaying}`);

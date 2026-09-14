@@ -11,9 +11,9 @@ from server.metadata import extract_metadata, extract_artwork_bytes
 
 class TestMetadata(unittest.TestCase):
     def test_real_flac_files_if_available(self):
-        root = "/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]"
-        if not os.path.isdir(root):
-            self.skipTest("Real music directory not found")
+        root = os.environ.get("TEST_MUSIC_DIR", "")
+        if not root or not os.path.isdir(root):
+            self.skipTest("TEST_MUSIC_DIR not configured or directory not found")
 
         flac_files = []
         for dirpath, _, filenames in os.walk(root):

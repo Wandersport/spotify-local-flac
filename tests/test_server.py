@@ -50,7 +50,7 @@ class TestConfig(unittest.TestCase):
         traversal_1 = os.path.join(music_dir, "..", "secret.txt")
         self.assertFalse(cfg.is_path_allowed(traversal_1))
         self.assertFalse(cfg.is_path_allowed("/etc/passwd"))
-        self.assertFalse(cfg.is_path_allowed("/home/admin/.bashrc"))
+        self.assertFalse(cfg.is_path_allowed("/home/otheruser/.bashrc"))
 
 
 class TestDatabase(unittest.TestCase):

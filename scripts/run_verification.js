@@ -1,11 +1,15 @@
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 async function main() {
   const tabs = await (await fetch("http://127.0.0.1:9222/json")).json();
   const wsUrl = tabs[0].webSocketDebuggerUrl;
   console.log("Connecting to CDP at", wsUrl);
   
-  const token = fs.readFileSync('/home/admin/.config/spotify-local-flac/token', 'utf8').trim();
+  const tokenFile = path.join(os.homedir(), '.config', 'spotify-local-flac', 'token');
+  const token = fs.readFileSync(tokenFile, 'utf8').trim();
+  const screenshotsDir = path.join(__dirname, '..', 'screenshots');
 
   const ws = new WebSocket(wsUrl);
   await new Promise(r => ws.onopen = r);
@@ -38,9 +42,9 @@ async function main() {
 
   async function screenshot(filename) {
     const res = await send("Page.captureScreenshot", { format: "png" });
-    const buffer = Buffer.from(res.result.data, 'base64');
-    fs.writeFileSync(filename, buffer);
-    console.log(`📸 Saved screenshot: ${filename} (${buffer.length} bytes)`);
+    const fullPath = path.isAbsolute(filename) ? filename : path.join(screenshotsDir, filename);
+    fs.writeFileSync(fullPath, Buffer.from(res.result.data, "base64"));
+    console.log("Saved screenshot:", fullPath);
   }
 
   // 1. FRESH START STATE
@@ -68,7 +72,7 @@ async function main() {
   console.log("Fresh state:", JSON.stringify(freshState, null, 2));
 
   // Take Screenshot 1
-  await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/01_home_no_local_playback.png");
+  await screenshot("01_home_no_local_playback.png");
 
   // 2. CHECK SIDEBAR AND NAVIGATE TO /local-flac
   console.log("\n--- STEP 2: Navigating to /local-flac ---");
@@ -138,7 +142,7 @@ async function main() {
   console.log("Bottom Bar playing state:", JSON.stringify(playingBarState, null, 2));
 
   // Take Screenshot 2
-  await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/02_local_flac_page_playing.png");
+  await screenshot("02_local_flac_page_playing.png");
 
   // 4. NAVIGATE TO HOME WHILE FLAC IS PLAYING
   console.log("\n--- STEP 4: Navigating to Home '/' While Playing FLAC ---");
@@ -164,7 +168,7 @@ async function main() {
   console.log("Home while playing state:", JSON.stringify(homePlayingState, null, 2));
 
   // Take Screenshot 3
-  await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/03_home_flac_playing.png");
+  await screenshot("03_home_flac_playing.png");
 
   // 5. TEST PLAYBACK CONTROLS (Pause / Resume / Seek / Volume)
   console.log("\n--- STEP 5: Testing Controls ---");
@@ -207,7 +211,7 @@ async function main() {
   console.log("Native Local Files verification:", JSON.stringify(nativeFilesState, null, 2));
 
   // Screenshot 4
-  await screenshot("/home/admin/Projects/spotify-local-flac/screenshots/04_native_local_files.png");
+  await screenshot("04_native_local_files.png");
 
   ws.close();
   console.log("\n✔ All verification steps completed successfully!");
