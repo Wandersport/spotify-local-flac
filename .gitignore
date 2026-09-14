@@ -22,6 +22,9 @@ config.json
 Backup/
 .cache/
 
+# Test and temporary artifacts
+screenshots/[0-9]*.png
+
 # OS artifacts
 .DS_Store
 *.swp

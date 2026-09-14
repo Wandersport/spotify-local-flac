@@ -57,24 +57,22 @@ if flatpak info com.spotify.Client >/dev/null 2>&1; then
     if [ -d "$SYSTEM_FP_PATH" ]; then
         SPOTIFY_PATH="$SYSTEM_FP_PATH"
         echo "✔ Flatpak Spotify path: $SPOTIFY_PATH"
-        # Grant write permissions for Spicetify patching if not already writable
         if [ ! -w "$SPOTIFY_PATH" ] || [ ! -w "$SPOTIFY_PATH/Apps" ]; then
-            echo "Granting write permissions to Spotify Flatpak directory for Spicetify..."
-            sudo chmod a+wr "$SPOTIFY_PATH"
-            sudo chmod -R a+wr "$SPOTIFY_PATH/Apps"
+            echo "Granting user write permissions to Spotify Flatpak directory for Spicetify..."
+            sudo chown -R "$USER:" "$SPOTIFY_PATH"
+            chmod -R u+rwX,go+rX-w "$SPOTIFY_PATH"
         fi
     elif [ -d "$USER_FP_PATH" ]; then
         SPOTIFY_PATH="$USER_FP_PATH"
         echo "✔ User Flatpak Spotify path: $SPOTIFY_PATH"
-        chmod a+wr "$SPOTIFY_PATH" || true
-        chmod -R a+wr "$SPOTIFY_PATH/Apps" || true
+        chmod -R u+rwX,go+rX-w "$SPOTIFY_PATH" || true
     else
         # Try dynamic search
         FOUND_PATH=$(find /var/lib/flatpak/app/com.spotify.Client/ -name "spotify" -type f 2>/dev/null | grep -E "extra/share/spotify/spotify$" | head -n 1 || true)
         if [ -n "$FOUND_PATH" ]; then
             SPOTIFY_PATH="$(dirname "$FOUND_PATH")"
-            sudo chmod a+wr "$SPOTIFY_PATH"
-            sudo chmod -R a+wr "$SPOTIFY_PATH/Apps"
+            sudo chown -R "$USER:" "$SPOTIFY_PATH"
+            chmod -R u+rwX,go+rX-w "$SPOTIFY_PATH"
         else
             echo "❌ Could not find Spotify Flatpak app directory."
             exit 1
@@ -91,13 +89,11 @@ if flatpak info com.spotify.Client >/dev/null 2>&1; then
 elif command -v spotify >/dev/null 2>&1; then
     echo "✔ Detected Native Spotify installation"
     SPOTIFY_BIN="$(command -v spotify)"
-    # Resolve symlink
     REAL_SPOTIFY="$(readlink -f "$SPOTIFY_BIN" || echo "$SPOTIFY_BIN")"
     SPOTIFY_PATH="$(dirname "$REAL_SPOTIFY")"
     PREFS_PATH="$USER_HOME/.config/spotify/prefs"
     if [ ! -w "$SPOTIFY_PATH" ]; then
-        sudo chmod a+wr "$SPOTIFY_PATH" || true
-        sudo chmod -R a+wr "$SPOTIFY_PATH/Apps" 2>/dev/null || true
+        sudo chown -R "$USER:" "$SPOTIFY_PATH" 2>/dev/null || sudo chmod -R u+rwX,go+rX-w "$SPOTIFY_PATH" || true
     fi
 else
     echo "❌ Neither Flatpak com.spotify.Client nor native Spotify was found."
@@ -113,7 +109,7 @@ if ! command -v spicetify >/dev/null 2>&1; then
     elif command -v paru >/dev/null 2>&1; then
         paru -S --noconfirm spicetify-bin
     else
-        echo "Installing Spicetify via official release script..."
+        echo "Installing Spicetify via official installer..."
         curl -fsSL https://raw.githubusercontent.com/spicetify/cli/main/install.sh | sh
         export PATH="$USER_HOME/.spicetify:$PATH"
     fi
@@ -141,7 +137,7 @@ cat << 'EOF' > "$BIN_DIR/spotify-local-flac-server"
 #!/usr/bin/env bash
 exec /usr/bin/python3 "$HOME/.local/share/spotify-local-flac/server/main.py" "$@"
 EOF
-chmod +x "$BIN_DIR/spotify-local-flac-server"
+chmod 755 "$BIN_DIR/spotify-local-flac-server"
 echo "✔ Backend files installed to $INSTALL_DIR"
 
 # 6. Configure service and security token
@@ -156,18 +152,10 @@ echo "✔ Local auth token configured."
 # Set up config.json if not present
 CONFIG_FILE="$CONFIG_DIR/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    # Auto-detect existing user music directories
-    DETECTED_DIRS=()
-    [ -d "$USER_HOME/Music" ] && DETECTED_DIRS+=("\"$USER_HOME/Music\"")
-    
-    # Check for /mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS] or similar
-    if [ -d "/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]" ]; then
-        DETECTED_DIRS+=("\"/mnt/1TB/[copias]/Music/[NEW MUSIC FOLDERS]\"")
-    fi
-    
-    DIRS_JSON=$(IFS=,; echo "${DETECTED_DIRS[*]}")
-    if [ -z "$DIRS_JSON" ]; then
-        DIRS_JSON="\"$USER_HOME/Music\""
+    # Auto-detect existing user music directory
+    MUSIC_DIR="$USER_HOME/Music"
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+        MUSIC_DIR="$(xdg-user-dir MUSIC 2>/dev/null || echo "$USER_HOME/Music")"
     fi
 
     cat << EOF > "$CONFIG_FILE"
@@ -175,34 +163,37 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "host": "127.0.0.1",
   "port": 18492,
   "music_directories": [
-    $DIRS_JSON
+    "$MUSIC_DIR"
   ],
   "exclude_patterns": [
-    ".*",
+    ".git*",
+    ".cache*",
+    ".Trash*",
+    ".DS_Store*",
     "*recycle*",
     "*trash*",
     "*lost+found*"
   ],
   "supported_extensions": [
     ".flac",
-    ".alac",
     ".wav",
     ".mp3",
-    ".ogg",
     ".m4a",
-    ".opus",
-    ".aiff"
+    ".ogg",
+    ".opus"
   ],
   "database_path": "$INSTALL_DIR/library.db",
   "watch_directories": true,
   "log_level": "INFO"
 }
 EOF
-    echo "✔ Created default configuration with detected music directories."
+    echo "✔ Created default configuration with detected music directory: $MUSIC_DIR"
 fi
 
-# 7. Install Spicetify Custom App and Extension
-echo "--- Installing Spicetify Custom App and Extension ---"
+# 7. Build and Install Spicetify Custom App and Extension
+echo "--- Building and installing Spicetify Custom App and Extension ---"
+python3 "$SCRIPT_DIR/scripts/build.py"
+
 SPICETIFY_CUSTOM_APPS="$USER_HOME/.config/spicetify/CustomApps"
 SPICETIFY_EXTENSIONS="$USER_HOME/.config/spicetify/Extensions"
 mkdir -p "$SPICETIFY_CUSTOM_APPS/local-flac" "$SPICETIFY_EXTENSIONS"
@@ -215,6 +206,7 @@ EXT_SRC="$SCRIPT_DIR/spicetify/Extensions/local-flac-player.js"
 EXT_DEST="$SPICETIFY_EXTENSIONS/local-flac-player.js"
 
 sed -e "s/token: \"\"/token: \"$AUTH_TOKEN\"/g" "$EXT_SRC" > "$EXT_DEST"
+chmod 600 "$EXT_DEST"
 
 # Configure spicetify config-xpui.ini
 echo "Registering custom app 'local-flac' and extension 'local-flac-player.js' in Spicetify..."
@@ -222,11 +214,10 @@ spicetify config custom_apps local-flac
 spicetify config extensions local-flac-player.js
 
 echo "Applying Spicetify modifications..."
-# If not yet backed up, run backup apply, else apply
 if spicetify apply; then
     echo "✔ Spicetify successfully applied!"
 else
-    echo "Spicetify apply failed, trying backup apply..."
+    echo "Spicetify apply needed backup, trying backup apply..."
     spicetify backup apply
 fi
 

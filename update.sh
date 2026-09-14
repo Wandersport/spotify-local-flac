@@ -11,7 +11,11 @@ echo "=========================================================="
 echo "  Updating Spotify Local FLAC Integration"
 echo "=========================================================="
 
-# 1. Update backend files
+# 1. Build fresh frontend bundles
+echo "Building Spicetify frontend bundles..."
+python3 "$SCRIPT_DIR/scripts/build.py"
+
+# 2. Update backend files
 INSTALL_DIR="$USER_HOME/.local/share/spotify-local-flac"
 if [ -d "$INSTALL_DIR" ]; then
     echo "Updating backend code..."
@@ -20,7 +24,7 @@ if [ -d "$INSTALL_DIR" ]; then
     echo "✔ Backend restarted."
 fi
 
-# 2. Update Spicetify files
+# 3. Update Spicetify files
 SPICETIFY_CUSTOM_APPS="$USER_HOME/.config/spicetify/CustomApps/local-flac"
 SPICETIFY_EXTENSIONS="$USER_HOME/.config/spicetify/Extensions"
 TOKEN_FILE="$USER_HOME/.config/spotify-local-flac/token"
@@ -37,9 +41,10 @@ if [ -d "$SPICETIFY_EXTENSIONS" ]; then
     EXT_SRC="$SCRIPT_DIR/spicetify/Extensions/local-flac-player.js"
     EXT_DEST="$SPICETIFY_EXTENSIONS/local-flac-player.js"
     sed -e "s/token: \"\"/token: \"$AUTH_TOKEN\"/g" "$EXT_SRC" > "$EXT_DEST"
+    chmod 600 "$EXT_DEST"
 fi
 
-# 3. Check Spicetify status & re-apply
+# 4. Check Spicetify status & re-apply
 if command -v spicetify >/dev/null 2>&1; then
     echo "Re-applying Spicetify..."
     if ! spicetify apply; then
