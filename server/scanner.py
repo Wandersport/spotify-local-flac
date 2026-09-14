@@ -27,11 +27,47 @@ class LibraryScanner:
         self.tracks_removed: int = 0
         self.errors: int = 0
 
-    def _should_exclude(self, path: str, name: str) -> bool:
-        """Check if filename or path matches any exclusion patterns."""
-        for pat in self.config.exclude_patterns:
-            if fnmatch.fnmatch(name, pat) or fnmatch.fnmatch(path, pat):
+    def _should_exclude(self, path: str, name: str, is_dir: bool = False) -> bool:
+        """Check if filename or directory path matches exclusion criteria.
+
+        Semantics:
+        - Hidden directories (e.g. .git, .cache, hidden metadata dirs) are skipped.
+        - Directory/path patterns like *recycle*, *trash*, *lost+found* are skipped.
+        - Known junk files (e.g. .DS_Store, .directory, thumbs.db, AppleDouble ._*) are skipped.
+        - Supported audio files (.flac, .mp3, .m4a, .mp4, .wav, etc.) are NOT excluded
+          merely because their basename begins with '.' (e.g. '.223 song.mp3', '.hidden.flac').
+        """
+        # 1. Directory exclusion
+        if is_dir:
+            if name.startswith("."):
                 return True
+            for pat in self.config.exclude_patterns:
+                if fnmatch.fnmatch(name.lower(), pat.lower()) or fnmatch.fnmatch(path.lower(), pat.lower()):
+                    return True
+            return False
+
+        # 2. File exclusion
+        # Skip AppleDouble resource fork files (._*)
+        if name.startswith("._"):
+            return True
+
+        # Skip known OS junk/metadata files
+        if name.lower() in (".ds_store", ".directory", ".localized", "thumbs.db", "desktop.ini"):
+            return True
+
+        ext = os.path.splitext(name)[1].lower()
+        is_supported_audio = ext in self.config.supported_extensions
+
+        # Evaluate exclusion patterns
+        for pat in self.config.exclude_patterns:
+            pat_lower = pat.lower()
+            # If pattern is '.*', do NOT exclude supported audio files that happen to start with '.'
+            if pat_lower == ".*" and is_supported_audio:
+                continue
+
+            if fnmatch.fnmatch(name.lower(), pat_lower) or fnmatch.fnmatch(path.lower(), pat_lower):
+                return True
+
         return False
 
     def scan_sync(self) -> Dict[str, Any]:
@@ -59,11 +95,11 @@ class LibraryScanner:
                         # Filter directories in place to avoid descending into excluded dirs
                         dirnames[:] = [
                             d for d in dirnames
-                            if not self._should_exclude(os.path.join(dirpath, d), d)
+                            if not self._should_exclude(os.path.join(dirpath, d), d, is_dir=True)
                         ]
 
                         for fname in filenames:
-                            if self._should_exclude(os.path.join(dirpath, fname), fname):
+                            if self._should_exclude(os.path.join(dirpath, fname), fname, is_dir=False):
                                 continue
 
                             ext = os.path.splitext(fname)[1].lower()

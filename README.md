@@ -241,12 +241,12 @@ cd ~/Projects/spotify-local-flac
 During deep reverse-engineering of the Spotify desktop binary (`/var/lib/flatpak/app/com.spotify.Client/x86_64/stable/active/files/extra/share/spotify/spotify`) and bit-level database cross-referencing:
 - **Total Audio Files on Disk (1,880 files)**: 1,604 `.mp3`, 137 `.m4a` (136 AAC, 1 ALAC), 129 `.flac`, and 10 `.wav`.
 - **Spotify Native Local Files (1,741 tracks)**: Spotify's internal scanner (`LocalFilesScanner` in the closed-source C++ `libplayback` layer) hardcodes support strictly for `.mp3`, `.m4a`, and `.mp4`. It silently discards `.flac` and `.wav` files. When synthetic `spotify:local:...` FLAC track URIs are injected into Spotify's native player, the core engine responds with `command_not_allowed`.
-- **Spotify Local FLAC Extension (1,879 Total Tracks / 129 FLACs)**: Our companion daemon indexes all 129 FLACs and 10 WAV files, while skipping 1 MP3 (`.223...mp3`) matching the hidden dotfile exclusion pattern `.*`.
-- **The 9-Track Discrepancy (1,750 non-FLAC in companion vs. 1,741 in native)**: Exactly accounted for by **10 WAV tracks** rejected by Spotify native minus **1 MP3 dotfile** excluded by the companion daemon. Full details are documented in [AUDIT.md](AUDIT.md).
+- **Spotify Local FLAC Extension (1,880 Total Tracks / 129 FLACs)**: Our companion daemon indexes 100% of supported audio files on disk (129 FLAC, 1,604 MP3, 137 M4A, 10 WAV), including valid audio files starting with `.` (such as `.223...mp3`).
+- **The 139-Track Difference (1,880 in companion vs. 1,741 in native)**: Exactly accounted for by the lossless/uncompressed audio formats that Spotify's native engine excludes (**129 FLAC tracks** + **10 WAV tracks**). Full details are documented in [AUDIT.md](AUDIT.md).
 
 ```
 Total Audio Files on Disk: 1,880
-  ├── Companion Index: 1,879 tracks (129 FLAC, 1,603 MP3, 137 M4A, 10 WAV)
+  ├── Companion Index: 1,880 tracks (129 FLAC, 1,604 MP3, 137 M4A, 10 WAV)
   └── Spotify Native:  1,741 tracks (1,604 MP3, 137 M4A)
 ```
 
