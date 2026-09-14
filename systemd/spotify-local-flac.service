@@ -1,0 +1,16 @@
+[Unit]
+Description=Spotify Local FLAC Companion Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/spotify-local-flac
+ExecStart=/usr/bin/python3 %h/.local/share/spotify-local-flac/server/main.py
+Restart=on-failure
+RestartSec=3s
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

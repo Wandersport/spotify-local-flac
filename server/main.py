@@ -6,11 +6,21 @@ import signal
 import logging
 import argparse
 import threading
-from .config import Config
-from .db import Database
-from .scanner import LibraryScanner
-from .watcher import DirectoryWatcher
-from .app import ThreadedHTTPServer, APIHandler
+if __package__ is None or __package__ == "":
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from server.config import Config
+    from server.db import Database
+    from server.scanner import LibraryScanner
+    from server.watcher import DirectoryWatcher
+    from server.app import ThreadedHTTPServer, APIHandler
+else:
+    from .config import Config
+    from .db import Database
+    from .scanner import LibraryScanner
+    from .watcher import DirectoryWatcher
+    from .app import ThreadedHTTPServer, APIHandler
 
 logger = logging.getLogger("spotify_local_flac")
 

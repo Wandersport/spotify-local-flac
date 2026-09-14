@@ -59,7 +59,8 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _send_error(self, status: int, message: str) -> None:
         self._send_json({"error": message, "status": status}, status=status)
@@ -83,6 +84,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 return True
 
         return False
+
+    def do_HEAD(self) -> None:
+        self.do_GET()
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
@@ -377,10 +381,11 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("ETag", etag)
         self._send_cors_headers()
         self.end_headers()
-        try:
-            self.wfile.write(data)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        if self.command != "HEAD":
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def _handle_stream(self, track_id_str: str) -> None:
         """Stream audio file supporting HTTP 206 Partial Content range requests."""
@@ -442,6 +447,8 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self._send_cors_headers()
         self.end_headers()
+        if self.command == "HEAD":
+            return
 
         # Stream chunk by chunk (64KB buffer) without loading entire file into memory
         BUFFER_SIZE = 64 * 1024

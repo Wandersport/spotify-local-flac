@@ -128,6 +128,7 @@ class TestHTTPServerAndStreaming(unittest.TestCase):
 
         cls.config = Config(cls.config_path)
         cls.config.data["music_directories"] = [cls.music_dir]
+        cls.config.data["database_path"] = os.path.join(cls.temp_dir, "test.db")
         cls.config.data["port"] = 19482
         cls.config.save()
 
