@@ -1,0 +1,28 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Databases and runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.log
+
+# Authentication and secrets
+token
+*.token
+config.json
+.env
+
+# Spicetify build artifacts
+Backup/
+.cache/
+
+# OS artifacts
+.DS_Store
+*.swp
+*~
