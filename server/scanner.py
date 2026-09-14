@@ -84,27 +84,47 @@ class LibraryScanner:
             try:
                 extensions = set(self.config.supported_extensions)
                 seen_paths: Set[str] = set()
+                scanned_roots: Set[str] = set()
+                visited_real_dirs: Set[str] = set()
 
                 for root_dir in self.config.music_directories:
                     if not os.path.isdir(root_dir):
-                        logger.warning("Music directory does not exist: %s", root_dir)
+                        logger.warning("Music directory does not exist or is unavailable: %s", root_dir)
                         continue
 
+                    real_root = os.path.realpath(root_dir)
+                    scanned_roots.add(real_root)
                     logger.info("Scanning music directory: %s", root_dir)
-                    for dirpath, dirnames, filenames in os.walk(root_dir, followlinks=True):
-                        # Filter directories in place to avoid descending into excluded dirs
+
+                    for dirpath, dirnames, filenames in os.walk(root_dir, followlinks=False):
+                        real_dirpath = os.path.realpath(dirpath)
+                        if real_dirpath in visited_real_dirs:
+                            dirnames[:] = []
+                            continue
+                        visited_real_dirs.add(real_dirpath)
+
+                        # Filter directories in place to avoid descending into excluded or symlinked dirs
                         dirnames[:] = [
                             d for d in dirnames
-                            if not self._should_exclude(os.path.join(dirpath, d), d, is_dir=True)
+                            if not os.path.islink(os.path.join(dirpath, d))
+                            and not self._should_exclude(os.path.join(dirpath, d), d, is_dir=True)
                         ]
 
                         for fname in filenames:
-                            if self._should_exclude(os.path.join(dirpath, fname), fname, is_dir=False):
+                            candidate_path = os.path.join(dirpath, fname)
+                            if self._should_exclude(candidate_path, fname, is_dir=False):
                                 continue
 
                             ext = os.path.splitext(fname)[1].lower()
                             if ext in extensions:
-                                full_path = os.path.realpath(os.path.join(dirpath, fname))
+                                # Canonicalize candidate audio path BEFORE indexing
+                                full_path = os.path.realpath(candidate_path)
+
+                                # Verify path is allowed within configured roots (prevents directory escapes / outside symlinks)
+                                if not self.config.is_path_allowed(full_path) or not os.path.isfile(full_path):
+                                    logger.debug("Skipping disallowed or non-file path: %s", full_path)
+                                    continue
+
                                 seen_paths.add(full_path)
                                 self.tracks_found += 1
                                 self.current_file = full_path
@@ -135,14 +155,43 @@ class LibraryScanner:
                                     logger.warning("Error processing %s: %s", full_path, e)
                                     self.errors += 1
 
-                # Clean up tracks that were deleted or moved
+                # Clean up tracks that were deleted, moved, or from removed roots:
+                # Sane rule:
+                # - Root scanned successfully -> records under that root absent from seen_paths are removed
+                # - Root no longer in config -> records are removed
+                # - Root is in config but was unavailable/unmounted during scan -> records are PRESERVED
                 all_db_paths = self.db.get_all_paths()
-                missing = [p for p in all_db_paths if p not in seen_paths]
-                # Double check that missing files truly don't exist on disk before deleting
-                truly_missing = [p for p in missing if not os.path.exists(p)]
-                if truly_missing:
-                    self.tracks_removed = self.db.delete_tracks_by_paths(truly_missing)
-                    logger.info("Removed %d missing tracks from library database", self.tracks_removed)
+                configured_real_roots = [os.path.realpath(d) for d in self.config.music_directories]
+                to_remove = []
+
+                for db_path in all_db_paths:
+                    if db_path in seen_paths:
+                        continue
+
+                    # Check if db_path belongs to a root that was scanned
+                    in_scanned_root = any(
+                        db_path == r or db_path.startswith(r + os.sep)
+                        for r in scanned_roots
+                    )
+                    if in_scanned_root:
+                        to_remove.append(db_path)
+                        continue
+
+                    # Check if db_path belongs to any configured root at all
+                    in_configured_root = any(
+                        db_path == r or db_path.startswith(r + os.sep)
+                        for r in configured_real_roots
+                    )
+                    if not in_configured_root:
+                        # Root was removed from configuration
+                        to_remove.append(db_path)
+                        continue
+
+                    # Otherwise, db_path belongs to a configured root that was unavailable during this scan; preserve it!
+
+                if to_remove:
+                    self.tracks_removed = self.db.delete_tracks_by_paths(to_remove)
+                    logger.info("Removed %d stale tracks from library database", self.tracks_removed)
 
                 self.last_scan_time = time.time()
                 elapsed = self.last_scan_time - start_time

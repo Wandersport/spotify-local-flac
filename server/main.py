@@ -55,6 +55,7 @@ def run_server(config_path: str = None, host: str = None, port: int = None, scan
     APIHandler.config = config
     APIHandler.db = db
     APIHandler.scanner = scanner
+    APIHandler.watcher = watcher
 
     server = ThreadedHTTPServer((config.host, config.port), APIHandler)
 

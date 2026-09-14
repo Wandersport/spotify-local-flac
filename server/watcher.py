@@ -56,17 +56,29 @@ class DirectoryWatcher:
             return False
 
     def _add_watch_recursive(self, path: str) -> None:
-        """Recursively add inotify watches for path and subdirectories."""
+        """Recursively add inotify watches for path and subdirectories safely."""
         if not self._libc or self._inotify_fd is None:
             return
         try:
-            for root, dirs, _ in os.walk(path, followlinks=True):
-                # Filter excluded dirs
+            real_base = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+            if not self.config.is_path_allowed(real_base) or not os.path.isdir(real_base):
+                return
+
+            visited_real: Set[str] = set()
+            for root, dirs, _ in os.walk(real_base, followlinks=False):
+                abs_root = os.path.realpath(root)
+                if abs_root in visited_real or not self.config.is_path_allowed(abs_root):
+                    dirs[:] = []
+                    continue
+                visited_real.add(abs_root)
+
+                # Filter excluded or symlinked dirs
                 dirs[:] = [
                     d for d in dirs
-                    if not any(d.startswith(".") or d.lower() in ("trash", "lost+found") for _ in [0])
+                    if not os.path.islink(os.path.join(root, d))
+                    and not any(d.startswith(".") or d.lower() in ("trash", "lost+found", "recycle") for _ in [0])
                 ]
-                abs_root = os.path.realpath(root)
+
                 b_path = abs_root.encode("utf-8")
                 wd = self._libc.inotify_add_watch(self._inotify_fd, b_path, WATCH_MASK)
                 if wd >= 0:
@@ -76,6 +88,49 @@ class DirectoryWatcher:
                     logger.debug("inotify_add_watch failed for %s: errno %d", abs_root, errno)
         except Exception as e:
             logger.warning("Error adding watches to %s: %s", path, e)
+
+    def add_root(self, path: str) -> None:
+        """Add inotify watches for a newly added music directory."""
+        real_path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+        if not os.path.isdir(real_path) or not self.config.is_path_allowed(real_path):
+            return
+        logger.info("Adding live inotify watches for: %s", real_path)
+        with self._lock:
+            self._add_watch_recursive(real_path)
+
+    def remove_root(self, path: str) -> None:
+        """Remove inotify watches for a removed music directory."""
+        real_path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+        logger.info("Removing live inotify watches for: %s", real_path)
+        with self._lock:
+            if not self._libc or self._inotify_fd is None:
+                return
+            to_remove_wds = [
+                wd for wd, p in self._wd_to_path.items()
+                if p == real_path or p.startswith(real_path + os.sep)
+            ]
+            for wd in to_remove_wds:
+                try:
+                    self._libc.inotify_rm_watch(self._inotify_fd, wd)
+                except Exception:
+                    pass
+                self._wd_to_path.pop(wd, None)
+
+    def reload_roots(self) -> None:
+        """Reload all inotify watches based on current configured music directories."""
+        with self._lock:
+            if not self._libc or self._inotify_fd is None:
+                return
+            for wd in list(self._wd_to_path.keys()):
+                try:
+                    self._libc.inotify_rm_watch(self._inotify_fd, wd)
+                except Exception:
+                    pass
+            self._wd_to_path.clear()
+            for d in self.config.music_directories:
+                if os.path.isdir(d):
+                    self._add_watch_recursive(d)
+            logger.info("Directory watcher reloaded: active on %d directories", len(self._wd_to_path))
 
     def _trigger_debounced_scan(self) -> None:
         """Debounce rapid filesystem events before triggering scanner."""
@@ -152,8 +207,8 @@ class DirectoryWatcher:
                         full_path = os.path.join(parent_dir, name) if name else parent_dir
 
                         if mask & IN_ISDIR and (mask & (IN_CREATE | IN_MOVED_TO)):
-                            # New directory created: watch it
-                            if os.path.isdir(full_path):
+                            # New directory created: watch it if not a symlink
+                            if os.path.isdir(full_path) and not os.path.islink(full_path):
                                 self._add_watch_recursive(full_path)
 
                         # Trigger library rescan
